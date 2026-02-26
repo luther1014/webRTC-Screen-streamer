@@ -1,0 +1,20 @@
+{
+  "name": "webrtc-electron-hybrid",
+  "version": "1.0.0",
+  "main": "electron/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node server.js",
+    "host": "electron .",
+    "start": "concurrently -k \"node server.js\" \"electron .\""
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "electron": "^30.0.0"
+  }
+}

@@ -1,0 +1,63 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Electron Screen Host</title>
+    <link rel="stylesheet" href="../public/styles.css" />
+</head>
+
+<body>
+    <h2>Electron Host (captures screen) → Browser viewers</h2>
+
+    <div class="row">
+        <label>Room: <input id="room" value="demo" /></label>
+        <label>Server: <input id="server" value="ws://localhost:8080" size="26" /></label>
+        <button id="connect">Connect</button>
+        <span>Status: <code id="status">idle</code></span>
+    </div>
+
+    <div class="row">
+        <button id="pick" disabled>Pick screen/window</button>
+        <button id="start" disabled>Start streaming</button>
+        <button id="stop" disabled>Stop</button>
+    </div>
+
+    <div class="row">
+        Viewer link example:
+        <code id="viewerLink">http://LAN-IP:8080/view?room=demo</code>
+    </div>
+
+    <!-- <h3>Scan to open viewer</h3>
+    <div class="row" style="align-items:flex-start;">
+        <div>
+            <canvas id="qr" style="border-radius:12px; border:1px solid #ddd;"></canvas>
+            <div style="margin-top:8px;">
+                <button id="copyLink">Copy viewer link</button>
+            </div>
+        </div>
+
+        <div style="max-width:520px;">
+            <div><strong>Viewer URL</strong></div>
+            <code id="viewerUrlFull"></code>
+            <div style="margin-top:8px;">
+                <small>Tip: use the LAN IP shown by your server (e.g. 192.168.x.x). Phones must be on the same
+                    Wi-Fi.</small>
+            </div>
+        </div>
+    </div> -->
+
+    <h3>Selected source preview</h3>
+    <video id="preview" autoplay playsinline muted></video>
+
+    <h3>Sources</h3>
+    <div id="sources" style="display:flex; gap:12px; flex-wrap:wrap;"></div>
+
+    <h3>Log</h3>
+    <pre id="log"></pre>
+
+    <script src="./host.js"></script>
+</body>
+
+</html>
