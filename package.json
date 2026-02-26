@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node server.js",
     "host": "electron .",
-    "start": "concurrently -k \"node server.js\" \"electron .\""
+    "start": "concurrently -k \"node server.js\" \"electron .\"",
+    "dist": "electron-builder"
   },
   "dependencies": {
     "express": "^4.19.2",
@@ -16,5 +17,30 @@
   "devDependencies": {
     "concurrently": "^9.0.0",
     "electron": "^30.0.0"
+  },
+  "build": {
+    "appId": "com.yourname.webrtcscreen",
+    "productName": "WiFi Screen Streamer",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "public/**/*",
+      "server/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
   }
 }
