@@ -5,6 +5,20 @@ const $connect = document.getElementById("connect");
 const $status = document.getElementById("status");
 const $statusChip = document.getElementById("statusChip");
 const $hostStateLabel = document.getElementById("hostStateLabel");
+const $viewerHealthSummary = document.getElementById("viewerHealthSummary");
+const $viewerHealthList = document.getElementById("viewerHealthList");
+const $viewerRenameModal = document.getElementById("viewerRenameModal");
+const $viewerRenameModalMeta = document.getElementById("viewerRenameModalMeta");
+const $viewerRenameModalInput = document.getElementById(
+  "viewerRenameModalInput",
+);
+const $viewerRenameModalSave = document.getElementById("viewerRenameModalSave");
+const $viewerRenameModalClear = document.getElementById(
+  "viewerRenameModalClear",
+);
+const $viewerRenameModalClose = document.getElementById(
+  "viewerRenameModalClose",
+);
 const $roomMirror = document.getElementById("roomMirror");
 const $roomKeyMirror = document.getElementById("roomKeyMirror");
 const $viewerCount = document.getElementById("viewerCount");
@@ -45,6 +59,243 @@ function notifyHostSystem(title, body) {
   window.electronAPI.notifyHostSystem({ title, body });
 }
 
+function formatRelativeTime(timestamp) {
+  if (!timestamp) return "Never";
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (seconds < 2) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
+
+function formatClockTime(timestamp) {
+  if (!timestamp) return "--:--:--";
+  return new Date(timestamp).toLocaleTimeString();
+}
+
+function getViewerAliasStorageKey() {
+  return `hostViewerAliases:${getRoomId()}`;
+}
+
+function loadStoredViewerAliases() {
+  try {
+    const raw = localStorage.getItem(getViewerAliasStorageKey());
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getStoredViewerAlias(viewerId) {
+  if (!viewerId) return "";
+  const aliases = loadStoredViewerAliases();
+  return String(aliases[viewerId] || "").trim();
+}
+
+function saveStoredViewerAlias(viewerId, alias) {
+  if (!viewerId) return;
+  const aliases = loadStoredViewerAliases();
+  const normalizedAlias = String(alias || "")
+    .trim()
+    .slice(0, 40);
+  if (normalizedAlias) {
+    aliases[viewerId] = normalizedAlias;
+  } else {
+    delete aliases[viewerId];
+  }
+  localStorage.setItem(getViewerAliasStorageKey(), JSON.stringify(aliases));
+}
+
+function getViewerShortId(viewerId) {
+  return viewerId?.slice(0, 6) || "Unknown";
+}
+
+function getViewerDisplayName(viewerId) {
+  const liveAlias = String(
+    viewerStates.get(viewerId)?.displayName || "",
+  ).trim();
+  if (liveAlias) return liveAlias;
+  const storedAlias = getStoredViewerAlias(viewerId);
+  if (storedAlias) return storedAlias;
+  return `Viewer ${getViewerShortId(viewerId)}`;
+}
+
+function setViewerDisplayName(viewerId, displayName, rerender = true) {
+  if (!viewerId) return;
+  const previous = viewerStates.get(viewerId) || {};
+  const normalizedName = String(displayName || "")
+    .trim()
+    .slice(0, 40);
+  viewerStates.set(viewerId, {
+    ...previous,
+    displayName: normalizedName,
+  });
+  saveStoredViewerAlias(viewerId, normalizedName);
+  if (rerender) {
+    renderViewerHealth();
+  }
+}
+
+function promptForViewerRename(viewerId) {
+  if (
+    !viewerId ||
+    !$viewerRenameModal ||
+    !$viewerRenameModalMeta ||
+    !$viewerRenameModalInput ||
+    !$viewerRenameModalSave ||
+    !$viewerRenameModalClear
+  ) {
+    return;
+  }
+  renameModalViewerId = viewerId;
+  const currentName = String(
+    viewerStates.get(viewerId)?.displayName || "",
+  ).trim();
+  $viewerRenameModal.hidden = false;
+  $viewerRenameModal.dataset.open = "true";
+  $viewerRenameModalMeta.textContent = `Device ${getViewerShortId(viewerId)} / ${getViewerConfidence(
+    viewerStates.get(viewerId),
+  )} / ${formatViewerPlayback(viewerStates.get(viewerId))}`;
+  $viewerRenameModalInput.value = currentName;
+  $viewerRenameModalInput.placeholder = `Viewer ${getViewerShortId(viewerId)}`;
+  $viewerRenameModalClear.disabled = !currentName;
+  $viewerRenameModalInput.focus();
+  $viewerRenameModalInput.select();
+}
+
+function closeViewerRenameModal() {
+  if (
+    !$viewerRenameModal ||
+    !$viewerRenameModalInput ||
+    !$viewerRenameModalClear
+  ) {
+    return;
+  }
+  renameModalViewerId = "";
+  $viewerRenameModal.hidden = true;
+  delete $viewerRenameModal.dataset.open;
+  $viewerRenameModalInput.value = "";
+  $viewerRenameModalClear.disabled = true;
+}
+
+function saveViewerRenameModal() {
+  if (!renameModalViewerId || !$viewerRenameModalInput) return;
+  setViewerDisplayName(
+    renameModalViewerId,
+    $viewerRenameModalInput.value,
+    true,
+  );
+  closeViewerRenameModal();
+}
+
+function getViewerConfidence(entry) {
+  if (!entry) return "Offline";
+  const age = entry.lastSeenAt
+    ? Date.now() - entry.lastSeenAt
+    : Number.POSITIVE_INFINITY;
+  const state = String(entry.connectionState || "").toLowerCase();
+  const playback = String(entry.playbackState || "").toLowerCase();
+
+  if (
+    ["disconnected", "offline", "failed", "closed", "host-left"].includes(
+      state,
+    ) ||
+    ["disconnected", "offline"].includes(playback)
+  ) {
+    return "Offline";
+  }
+
+  if (
+    age > 15000 ||
+    ["recovering", "reconnecting", "negotiating", "connecting"].includes(
+      state,
+    ) ||
+    ["recovering", "buffering"].includes(playback)
+  ) {
+    return age > 15000 ? "Offline" : "Recovering";
+  }
+
+  return "Connected";
+}
+
+function formatViewerPlayback(entry) {
+  const playback = String(entry?.playbackState || "standby");
+  if (playback === "playing") return "Playing";
+  if (playback === "paused") return "Paused";
+  if (playback === "recovering") return "Recovering";
+  if (playback === "buffering") return "Buffering";
+  if (playback === "disconnected") return "Disconnected";
+  return "Standby";
+}
+
+function renderViewerHealth() {
+  if (!$viewerHealthSummary || !$viewerHealthList) return;
+
+  const entries = Array.from(viewerStates.entries()).sort((a, b) => {
+    return (b[1].lastSeenAt || 0) - (a[1].lastSeenAt || 0);
+  });
+
+  if (entries.length === 0) {
+    $viewerHealthSummary.textContent = activeViewerIds.size
+      ? `${activeViewerIds.size} viewer${activeViewerIds.size === 1 ? "" : "s"} waiting`
+      : "No viewers yet";
+    $viewerHealthList.innerHTML =
+      '<p class="telemetry-empty">Waiting for viewer state</p>';
+    return;
+  }
+
+  const counts = { Connected: 0, Recovering: 0, Offline: 0 };
+  for (const [, entry] of entries) {
+    counts[getViewerConfidence(entry)] += 1;
+  }
+
+  const summaryParts = [];
+  if (counts.Connected) summaryParts.push(`${counts.Connected} connected`);
+  if (counts.Recovering) summaryParts.push(`${counts.Recovering} recovering`);
+  if (counts.Offline) summaryParts.push(`${counts.Offline} offline`);
+  $viewerHealthSummary.textContent =
+    summaryParts.join(" / ") || "No viewers yet";
+
+  $viewerHealthList.innerHTML = "";
+  for (const [viewerId, entry] of entries.slice(0, 4)) {
+    const item = document.createElement("div");
+    item.className = "telemetry-item";
+
+    const header = document.createElement("div");
+    header.className = "telemetry-item__head";
+
+    const title = document.createElement("strong");
+    title.textContent = getViewerDisplayName(viewerId);
+
+    const renameButton = document.createElement("button");
+    renameButton.type = "button";
+    renameButton.className = "telemetry-item__action";
+    renameButton.textContent = "Rename";
+    renameButton.addEventListener("click", () => {
+      promptForViewerRename(viewerId);
+    });
+
+    const meta = document.createElement("span");
+    meta.textContent = `Device ${getViewerShortId(viewerId)} / ${getViewerConfidence(
+      entry,
+    )} / ${formatViewerPlayback(entry)} / ${formatRelativeTime(entry.lastSeenAt)}`;
+
+    header.appendChild(title);
+    header.appendChild(renameButton);
+    item.appendChild(header);
+    item.appendChild(meta);
+    $viewerHealthList.appendChild(item);
+  }
+}
+
+function refreshHostConfidence() {
+  renderViewerHealth();
+}
+
 function setStatus(text) {
   const normalized = String(text || "idle");
   if ($status) $status.textContent = normalized;
@@ -69,6 +320,8 @@ function setStatus(text) {
       $statusChip.classList.add("status-idle");
     }
   }
+
+  refreshHostConfidence();
 }
 
 function updateSessionMirrors() {
@@ -104,7 +357,7 @@ function addViewerMessage(viewerId, emoji) {
   const time = new Date().toLocaleTimeString();
   const item = document.createElement("div");
   item.className = "chat-item";
-  item.innerHTML = `<strong>Viewer ${viewerId?.slice(0, 6) || "?"}</strong>: ${emoji} <time>${time}</time>`;
+  item.innerHTML = `<strong>${getViewerDisplayName(viewerId)}</strong>: ${emoji} <time>${time}</time>`;
   $messagePanel.prepend(item);
   while ($messagePanel.childElementCount > 50) {
     $messagePanel.removeChild($messagePanel.lastChild);
@@ -161,49 +414,76 @@ function showHostToast({
 }
 
 function showReactionOverlay(viewerId, emoji) {
-  const shortViewerId = viewerId?.slice(0, 6) || "Unknown";
+  const viewerName = getViewerDisplayName(viewerId);
   showHostToast({
     icon: emoji || "?",
-    title: `Viewer ${shortViewerId}`,
+    title: viewerName,
     subtitle: "sent a live reaction",
     tone: "info",
   });
   notifyHostSystem(
-    `Reaction from viewer ${shortViewerId}`,
+    `Reaction from ${viewerName}`,
     `${emoji || "Reaction"} received in the live session.`,
   );
 }
 
+function updateViewerState(viewerId, nextState = {}) {
+  if (!viewerId) return;
+  const previous = viewerStates.get(viewerId) || {};
+  viewerStates.set(viewerId, {
+    ...previous,
+    displayName: previous.displayName || getStoredViewerAlias(viewerId),
+    ...nextState,
+    lastSeenAt: nextState.lastSeenAt || Date.now(),
+  });
+  if (
+    renameModalViewerId === viewerId &&
+    $viewerRenameModal &&
+    !$viewerRenameModal.hidden &&
+    $viewerRenameModalMeta
+  ) {
+    const entry = viewerStates.get(viewerId);
+    $viewerRenameModalMeta.textContent = `Device ${getViewerShortId(
+      viewerId,
+    )} / ${getViewerConfidence(entry)} / ${formatViewerPlayback(entry)}`;
+  }
+  renderViewerHealth();
+}
+
 function notifyViewerJoined(viewerId, subtitle) {
-  const shortViewerId = viewerId?.slice(0, 6) || "Unknown";
+  const viewerName = getViewerDisplayName(viewerId);
   showHostToast({
     icon: "\u25CE",
-    title: `Viewer ${shortViewerId} joined`,
+    title: `${viewerName} joined`,
     subtitle,
     tone: "info",
   });
-  notifyHostSystem(`Viewer ${shortViewerId} joined`, subtitle);
+  notifyHostSystem(`${viewerName} joined`, subtitle);
 }
 
 function notifyViewerDisconnect(viewerId, subtitle, tone = "warn") {
   const normalizedViewerId = viewerId || "unknown";
   if (viewerDisconnectAlerts.has(normalizedViewerId)) return;
   viewerDisconnectAlerts.add(normalizedViewerId);
+  const viewerName = getViewerDisplayName(normalizedViewerId);
 
   showHostToast({
     icon: tone === "warn" ? "\u26A0" : "\u2139",
-    title: `Viewer ${normalizedViewerId.slice(0, 6)} disconnected`,
+    title: `${viewerName} disconnected`,
     subtitle,
     tone,
   });
-  notifyHostSystem(
-    `Viewer ${normalizedViewerId.slice(0, 6)} disconnected`,
-    subtitle,
-  );
+  notifyHostSystem(`${viewerName} disconnected`, subtitle);
 
   setTimeout(() => {
     viewerDisconnectAlerts.delete(normalizedViewerId);
   }, 5000);
+
+  updateViewerState(normalizedViewerId, {
+    connectionState: "disconnected",
+    playbackState: "disconnected",
+    lastSeenAt: Date.now(),
+  });
 }
 
 function describeJoinReason(reason) {
@@ -242,10 +522,17 @@ let canPickSources = false;
 const peers = new Map();
 const activeViewerIds = new Set();
 const viewerDisconnectAlerts = new Set();
+const viewerStates = new Map();
 
 let timerInterval = null;
 let timerStartTime = null;
 let timerRunning = false;
+let heartbeatInterval = null;
+let confidenceInterval = null;
+let lastHeartbeatSentAt = null;
+let renameModalViewerId = "";
+
+const HEARTBEAT_INTERVAL_MS = 5000;
 
 const rtcConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -261,6 +548,32 @@ function setHostControlsEnabled(enabled) {
 
 function syncPickButton() {
   if ($pick) $pick.disabled = !canPickSources;
+}
+
+function stopHostHeartbeat() {
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+  }
+}
+
+function sendHostHeartbeat(viewerId = "") {
+  if (!joinedAsHost || !ws || ws.readyState !== WebSocket.OPEN) return;
+  lastHeartbeatSentAt = Date.now();
+  send({
+    type: "host-heartbeat",
+    viewerId,
+    timestamp: lastHeartbeatSentAt,
+  });
+  refreshHostConfidence();
+}
+
+function startHostHeartbeat() {
+  stopHostHeartbeat();
+  sendHostHeartbeat();
+  heartbeatInterval = setInterval(() => {
+    sendHostHeartbeat();
+  }, HEARTBEAT_INTERVAL_MS);
 }
 
 function send(msg) {
@@ -426,6 +739,12 @@ function ensurePeer(viewerId) {
           "The live connection dropped before the viewer fully left the room.",
         );
       }
+      updateViewerState(viewerId, {
+        connectionState:
+          pc.connectionState === "failed" ? "failed" : "disconnected",
+        playbackState: "disconnected",
+        lastSeenAt: Date.now(),
+      });
       try {
         pc.close();
       } catch {}
@@ -558,7 +877,9 @@ function stopAll() {
   peers.clear();
   activeViewerIds.clear();
   viewerDisconnectAlerts.clear();
+  viewerStates.clear();
   updateViewerCount();
+  refreshHostConfidence();
 
   if ($stop) $stop.disabled = true;
   if ($start) $start.disabled = !joinedAsHost;
@@ -568,6 +889,7 @@ function stopAll() {
 
 function disconnectHostSocket(closeStatus = null) {
   joinedAsHost = false;
+  stopHostHeartbeat();
   if (!ws) return;
   const socket = ws;
   ws = null;
@@ -597,6 +919,7 @@ function attachWsHandlers(socket) {
     const closeStatus = socket.codexCloseStatus || "ws-closed";
     ws = null;
     joinedAsHost = false;
+    stopHostHeartbeat();
     setStatus(closeStatus);
     log("WS closed");
     stopAll();
@@ -618,6 +941,8 @@ function attachWsHandlers(socket) {
       setStatus("connected");
       setHostControlsEnabled(true);
       updateViewerCount();
+      startHostHeartbeat();
+      refreshHostConfidence();
       log("Joined room as host:", getRoomId());
       return;
     }
@@ -644,7 +969,13 @@ function attachWsHandlers(socket) {
       log("Viewer joined:", msg.viewerId);
       activeViewerIds.add(msg.viewerId);
       viewerDisconnectAlerts.delete(msg.viewerId);
+      updateViewerState(msg.viewerId, {
+        connectionState: screenStream ? "connected" : "waiting",
+        playbackState: screenStream ? "connecting" : "standby",
+        lastSeenAt: Date.now(),
+      });
       updateViewerCount();
+      sendHostHeartbeat(msg.viewerId);
       notifyViewerJoined(
         msg.viewerId,
         screenStream
@@ -682,6 +1013,15 @@ function attachWsHandlers(socket) {
         } catch {}
       }
       peers.delete(msg.viewerId);
+      return;
+    }
+
+    if (msg.type === "viewer-state") {
+      updateViewerState(msg.viewerId, {
+        connectionState: msg.connectionState || "connected",
+        playbackState: msg.playbackState || "standby",
+        lastSeenAt: Number(msg.timestamp) || Date.now(),
+      });
       return;
     }
 
@@ -724,6 +1064,59 @@ if ($roomKey) {
     normalizeRoomKeyInput();
     updateSessionMirrors();
     updateViewerUrlAndQr();
+  });
+}
+
+if ($viewerRenameModalInput) {
+  $viewerRenameModalInput.addEventListener("input", () => {
+    if ($viewerRenameModalClear) {
+      $viewerRenameModalClear.disabled = !$viewerRenameModalInput.value.trim();
+    }
+  });
+}
+
+if ($viewerRenameModalSave) {
+  $viewerRenameModalSave.addEventListener("click", () => {
+    saveViewerRenameModal();
+  });
+}
+
+if ($viewerRenameModalClear) {
+  $viewerRenameModalClear.addEventListener("click", () => {
+    if (!$viewerRenameModalInput) return;
+    $viewerRenameModalInput.value = "";
+    $viewerRenameModalClear.disabled = true;
+    saveViewerRenameModal();
+  });
+}
+
+if ($viewerRenameModalClose) {
+  $viewerRenameModalClose.addEventListener("click", () => {
+    closeViewerRenameModal();
+  });
+}
+
+if ($viewerRenameModal) {
+  $viewerRenameModal.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.dataset.viewerRenameClose === "true") {
+      closeViewerRenameModal();
+    }
+  });
+}
+
+if ($viewerRenameModalInput) {
+  $viewerRenameModalInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveViewerRenameModal();
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeViewerRenameModal();
+    }
   });
 }
 
@@ -791,6 +1184,14 @@ if ($timerReset) {
   $timerReset.onclick = () => resetTimer();
 }
 
+window.addEventListener("beforeunload", () => {
+  stopHostHeartbeat();
+  if (confidenceInterval) {
+    clearInterval(confidenceInterval);
+    confidenceInterval = null;
+  }
+});
+
 window.addEventListener("DOMContentLoaded", async () => {
   log("DOM loaded.");
   log("electronAPI available:", !!window.electronAPI);
@@ -808,6 +1209,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   updateSessionMirrors();
   updateViewerCount();
   updateSelectedSourceUI();
+  refreshHostConfidence();
+  confidenceInterval = setInterval(refreshHostConfidence, 1000);
 
   await loadLanIp();
 });

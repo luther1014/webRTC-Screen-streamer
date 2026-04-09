@@ -115,6 +115,20 @@
                 </div>
             </section>
 
+            <section class="card ops-card ops-panel ops-panel--confidence">
+                <div class="card-title">Viewer Confidence</div>
+                <div class="card-body">
+                    <div class="section-head">
+                        <h2>Live viewer health</h2>
+                        <p>Track each connected viewer state, playback, and recent confidence updates.</p>
+                    </div>
+                    <strong id="viewerHealthSummary">No viewers yet</strong>
+                    <div id="viewerHealthList" class="telemetry-list">
+                        <p class="telemetry-empty">Waiting for viewer state</p>
+                    </div>
+                </div>
+            </section>
+
             <section class="card ops-card ops-panel ops-panel--timer">
                 <div class="card-title">Timer Overlay</div>
                 <div class="card-body">
@@ -208,6 +222,27 @@
                 </div>
             </section>
         </main>
+    </div>
+
+    <div id="viewerRenameModal" class="viewer-rename-modal" hidden>
+        <div class="viewer-rename-modal__backdrop" data-viewer-rename-close="true"></div>
+        <div class="viewer-rename-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="viewerRenameModalTitle">
+            <div class="viewer-rename-modal__head">
+                <div>
+                    <span class="eyebrow">Viewer Alias</span>
+                    <h2 id="viewerRenameModalTitle">Rename viewer</h2>
+                </div>
+                <button id="viewerRenameModalClose" type="button" class="viewer-rename-modal__close" aria-label="Close rename dialog">Close</button>
+            </div>
+            <p id="viewerRenameModalMeta" class="viewer-rename-modal__meta">Assign a clear label for this viewer.</p>
+            <label class="input-label" for="viewerRenameModalInput">Custom name
+                <input id="viewerRenameModalInput" type="text" maxlength="40" placeholder="Viewer name" />
+            </label>
+            <div class="action-row action-row--viewer-rename-modal">
+                <button id="viewerRenameModalClear" type="button">Clear Name</button>
+                <button id="viewerRenameModalSave" type="button" class="primary-btn">Save Name</button>
+            </div>
+        </div>
     </div>
 
     <script src="./host.js"></script>

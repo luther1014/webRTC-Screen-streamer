@@ -1,8 +1,38 @@
 import { qs, randomId, wsUrl, log } from "./common.js";
 
 const roomId = qs("room") || "demo";
-const viewerId = qs("id") || randomId();
 const initialRoomKey = qs("key") || "";
+
+function getViewerStorageKey() {
+  return `viewerId:${roomId}`;
+}
+
+function getPersistentViewerId() {
+  const explicitViewerId = String(qs("id") || "").trim();
+  if (explicitViewerId) {
+    try {
+      localStorage.setItem(getViewerStorageKey(), explicitViewerId);
+    } catch {}
+    return explicitViewerId;
+  }
+
+  try {
+    const storedViewerId = String(
+      localStorage.getItem(getViewerStorageKey()) || "",
+    ).trim();
+    if (storedViewerId) {
+      return storedViewerId;
+    }
+  } catch {}
+
+  const nextViewerId = randomId();
+  try {
+    localStorage.setItem(getViewerStorageKey(), nextViewerId);
+  } catch {}
+  return nextViewerId;
+}
+
+const viewerId = getPersistentViewerId();
 
 const $room = document.getElementById("room");
 const $viewerIdLabel = document.getElementById("viewerIdLabel");
@@ -11,6 +41,10 @@ const $connectBtn = document.getElementById("connectBtn");
 const $connectionHint = document.getElementById("connectionHint");
 const $status = document.getElementById("status");
 const $viewerStatusChip = document.getElementById("viewerStatusChip");
+const $connectionConfidenceChip = document.getElementById(
+  "connectionConfidenceChip",
+);
+const $viewerHeartbeatLabel = document.getElementById("viewerHeartbeatLabel");
 const $streamStateLabel = document.getElementById("streamStateLabel");
 const $stageTag = document.getElementById("stageTag");
 const $viewerStageFrame = document.getElementById("viewerStageFrame");
@@ -38,6 +72,7 @@ let pc = null;
 let socket = null;
 let reconnectTimer = null;
 let streamRecoveryTimer = null;
+let viewerStateInterval = null;
 let reconnectAttempt = 0;
 let timerInterval = null;
 let timerStartTime = null;
@@ -46,12 +81,19 @@ let joinedViewer = false;
 let manuallyClosed = false;
 let timerElapsedNotified = false;
 let hasLiveStream = false;
+let heartbeatMonitorInterval = null;
+let lastHostHeartbeatReceivedAt = null;
+let lastHostHeartbeatSentAt = null;
 let timerOverlayCollapsed =
   localStorage.getItem("viewerTimerOverlayCollapsed") === "1";
 
 const rtcConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
+
+const HEARTBEAT_CONNECTED_MS = 10000;
+const HEARTBEAT_OFFLINE_MS = 15000;
+const VIEWER_STATE_INTERVAL_MS = 3000;
 
 function normalizeRoomKeyInput() {
   if (!$roomKey) return "";
@@ -75,6 +117,22 @@ function formatStatusLabel(value) {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
+function formatRelativeTime(timestamp) {
+  if (!timestamp) return "No host heartbeat yet";
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (seconds < 2) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
+
+function formatClockTime(timestamp) {
+  if (!timestamp) return "--:--:--";
+  return new Date(timestamp).toLocaleTimeString();
+}
+
 function setStatus(status) {
   $status.textContent = status;
   if ($viewerStatusChip) {
@@ -95,6 +153,8 @@ function setStatus(status) {
       $viewerStatusChip.classList.add("status-idle");
     }
   }
+
+  updateConnectionConfidence();
 }
 
 function setHint(text) {
@@ -108,6 +168,97 @@ function setStreamState(text, tag = text) {
 
 function setConnectButtonLabel(text) {
   if ($connectBtn) $connectBtn.textContent = text;
+}
+
+function getViewerPlaybackState() {
+  if (!$video?.srcObject) return "standby";
+  if ($video.ended) return "disconnected";
+  if ($video.paused) return "paused";
+  if ($video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return "buffering";
+  return "playing";
+}
+
+function stopViewerStateHeartbeat() {
+  if (viewerStateInterval) {
+    clearInterval(viewerStateInterval);
+    viewerStateInterval = null;
+  }
+}
+
+function sendViewerState(override = {}) {
+  if (!joinedViewer || !socket || socket.readyState !== WebSocket.OPEN) return;
+  send({
+    type: "viewer-state",
+    connectionState:
+      override.connectionState || String($status?.textContent || "idle"),
+    playbackState: override.playbackState || getViewerPlaybackState(),
+    timestamp: Date.now(),
+  });
+}
+
+function startViewerStateHeartbeat() {
+  stopViewerStateHeartbeat();
+  sendViewerState();
+  viewerStateInterval = setInterval(() => {
+    sendViewerState();
+  }, VIEWER_STATE_INTERVAL_MS);
+}
+
+function updateConnectionConfidence() {
+  if (!$connectionConfidenceChip || !$viewerHeartbeatLabel) return;
+
+  const status = String($status?.textContent || "idle");
+  const heartbeatAge = lastHostHeartbeatReceivedAt
+    ? Date.now() - lastHostHeartbeatReceivedAt
+    : Number.POSITIVE_INFINITY;
+
+  let confidence = "Offline";
+  if (
+    [
+      "connecting",
+      "joining",
+      "reconnecting",
+      "recovering-stream",
+      "negotiating",
+    ].includes(status)
+  ) {
+    confidence = "Recovering";
+  } else if (
+    ["join-denied", "host-left", "replaced", "ws-closed"].includes(status)
+  ) {
+    confidence = "Offline";
+  } else if (joinedViewer && socket?.readyState === WebSocket.OPEN) {
+    if (heartbeatAge <= HEARTBEAT_CONNECTED_MS) {
+      confidence = "Connected";
+    } else if (
+      heartbeatAge <= HEARTBEAT_OFFLINE_MS ||
+      !lastHostHeartbeatReceivedAt
+    ) {
+      confidence = "Recovering";
+    } else {
+      confidence = "Offline";
+    }
+  }
+
+  $connectionConfidenceChip.textContent = confidence;
+  $connectionConfidenceChip.classList.remove(
+    "status-idle",
+    "status-good",
+    "status-warn",
+  );
+  if (confidence === "Connected") {
+    $connectionConfidenceChip.classList.add("status-good");
+  } else if (confidence === "Offline") {
+    $connectionConfidenceChip.classList.add("status-warn");
+  } else {
+    $connectionConfidenceChip.classList.add("status-idle");
+  }
+
+  $viewerHeartbeatLabel.textContent = lastHostHeartbeatReceivedAt
+    ? `${formatRelativeTime(lastHostHeartbeatReceivedAt)} (${formatClockTime(
+        lastHostHeartbeatSentAt || lastHostHeartbeatReceivedAt,
+      )})`
+    : "No host heartbeat yet";
 }
 
 function syncEmptyState() {
@@ -541,6 +692,10 @@ function ensurePc() {
         "The host video feed is now playing.",
         "success",
       );
+      sendViewerState({
+        connectionState: "connected-live",
+        playbackState: "playing",
+      });
     }
   };
 
@@ -549,6 +704,10 @@ function ensurePc() {
       clearStreamRecovery();
       setStatus("connected-live");
       setStreamState("Live stream connected", "Live");
+      sendViewerState({
+        connectionState: "connected-live",
+        playbackState: getViewerPlaybackState(),
+      });
     } else if (activePc.connectionState === "disconnected") {
       setStatus("disconnected");
       setStreamState("Stream interrupted", "Interrupted");
@@ -560,6 +719,10 @@ function ensurePc() {
           "warn",
         );
       }
+      sendViewerState({
+        connectionState: "recovering",
+        playbackState: "recovering",
+      });
       scheduleStreamRecovery({
         delay: 2200,
         title: "Recovering stream",
@@ -576,6 +739,10 @@ function ensurePc() {
           "error",
         );
       }
+      sendViewerState({
+        connectionState: "failed",
+        playbackState: "disconnected",
+      });
       scheduleStreamRecovery({
         delay: 700,
         title: "Rejoining stream",
@@ -591,6 +758,10 @@ function ensurePc() {
           "warn",
         );
       }
+      sendViewerState({
+        connectionState: "closed",
+        playbackState: "disconnected",
+      });
       scheduleStreamRecovery({
         delay: 1200,
         title: "Recovering stream",
@@ -609,6 +780,7 @@ function ensurePc() {
 function closeSocket({ manual = false } = {}) {
   manuallyClosed = manual;
   clearReconnect();
+  stopViewerStateHeartbeat();
   if (!socket) return;
   const activeSocket = socket;
   socket = null;
@@ -636,6 +808,8 @@ function connectSocket() {
 
   manuallyClosed = false;
   joinedViewer = false;
+  lastHostHeartbeatReceivedAt = null;
+  lastHostHeartbeatSentAt = null;
   resetPeer();
   setStatus("connecting");
   setStreamState("Opening signaling link", "Connecting");
@@ -682,6 +856,7 @@ function connectSocket() {
           : "Connected. Waiting for the next stream update.",
       );
       log($log, "Joined room as viewer", { viewerId });
+      startViewerStateHeartbeat();
       return;
     }
 
@@ -701,6 +876,7 @@ function connectSocket() {
     if (msg.type === "replaced") {
       joinedViewer = false;
       manuallyClosed = true;
+      stopViewerStateHeartbeat();
       setStatus("replaced");
       setStreamState("Session replaced", "Replaced");
       setConnectButtonLabel("Reconnect");
@@ -729,8 +905,19 @@ function connectSocket() {
       return;
     }
 
+    if (msg.type === "host-heartbeat") {
+      lastHostHeartbeatReceivedAt = Date.now();
+      lastHostHeartbeatSentAt =
+        Number(msg.timestamp) || lastHostHeartbeatReceivedAt;
+      updateConnectionConfidence();
+      return;
+    }
+
     if (msg.type === "host-left") {
       log($log, "Host left.");
+      stopViewerStateHeartbeat();
+      lastHostHeartbeatReceivedAt = null;
+      lastHostHeartbeatSentAt = null;
       setStatus("host-left");
       setStreamState("Host disconnected", "Offline");
       setConnectButtonLabel("Reconnect");
@@ -785,6 +972,7 @@ function connectSocket() {
   activeSocket.onclose = () => {
     if (socket !== activeSocket && socket !== null) return;
     socket = null;
+    stopViewerStateHeartbeat();
     resetPeer();
     if (joinedViewer && !manuallyClosed) {
       log($log, "Signaling connection closed unexpectedly.");
@@ -840,6 +1028,38 @@ if ($connectBtn) {
   });
 }
 
+if ($video) {
+  $video.addEventListener("playing", () => {
+    sendViewerState({
+      connectionState: "connected-live",
+      playbackState: "playing",
+    });
+  });
+
+  $video.addEventListener("pause", () => {
+    if (!$video.ended) {
+      sendViewerState({
+        connectionState: "connected-live",
+        playbackState: "paused",
+      });
+    }
+  });
+
+  $video.addEventListener("waiting", () => {
+    sendViewerState({
+      connectionState: "recovering",
+      playbackState: "buffering",
+    });
+  });
+
+  $video.addEventListener("ended", () => {
+    sendViewerState({
+      connectionState: "closed",
+      playbackState: "disconnected",
+    });
+  });
+}
+
 if ($fullscreenToggle) {
   $fullscreenToggle.addEventListener("click", () => {
     toggleViewerFullscreen();
@@ -865,10 +1085,17 @@ window.addEventListener("beforeunload", () => {
   closeSocket({ manual: true });
   clearInterval(timerInterval);
   clearStreamRecovery();
+  stopViewerStateHeartbeat();
+  if (heartbeatMonitorInterval) {
+    clearInterval(heartbeatMonitorInterval);
+    heartbeatMonitorInterval = null;
+  }
 });
 
 syncFullscreenButton();
 syncTimerOverlayCollapsed();
+updateConnectionConfidence();
+heartbeatMonitorInterval = setInterval(updateConnectionConfidence, 1000);
 
 if (initialRoomKey) {
   connectSocket();

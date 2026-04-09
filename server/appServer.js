@@ -209,7 +209,17 @@ function createServer({ port = 8080, publicDir }) {
         return;
       }
 
+      if (msg.type === "viewer-state") {
+        const viewerId = String(msg.viewerId || "").trim();
+        const viewer = room.viewers.get(viewerId);
+        if (viewer?.ws === ws && room.host) {
+          send(room.host, msg);
+        }
+        return;
+      }
+
       if (
+        msg.type === "host-heartbeat" ||
         msg.type === "timer-start" ||
         msg.type === "timer-stop" ||
         msg.type === "timer-reset"
