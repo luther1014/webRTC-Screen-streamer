@@ -103,52 +103,6 @@
                 </div>
             </section>
 
-            <section class="card ops-card ops-panel ops-panel--stage">
-                <div class="card-title">Broadcast Access</div>
-                <div class="card-body">
-                    <div class="broadcast-layout">
-                        <div class="broadcast-main">
-                            <div class="section-head">
-                                <h2>Viewer entry point</h2>
-                                <p>Share the room link or let nearby users scan the QR code.</p>
-                            </div>
-                            <div class="link-card broadcast-link-card">
-                                <span class="link-label">Viewer link</span>
-                                <code id="viewerLink">http://LAN-IP:8080/view?room=demo</code>
-                            </div>
-                            <div class="preview-stage">
-                                <div class="preview-stage__head">
-                                    <div>
-                                        <span class="eyebrow">Live Preview</span>
-                                        <h2>Selected source preview</h2>
-                                    </div>
-                                    <span class="preview-stage__tag" id="selectedSourceBadge">No source selected</span>
-                                </div>
-                                <div class="preview-shell">
-                                    <video id="preview" autoplay playsinline muted></video>
-                                </div>
-                            </div>
-                        </div>
-
-                        <aside class="broadcast-side">
-                            <div class="qr-panel">
-                                <div class="section-head">
-                                    <h2>Join QR</h2>
-                                    <p id="qrHint">Scan to open viewer page</p>
-                                </div>
-                                <div class="qr-frame">
-                                    <img id="qrImage" alt="Viewer QR Code" class="qr-image" />
-                                </div>
-                            </div>
-                            <div class="ops-note">
-                                <span class="eyebrow">Operator note</span>
-                                <p>Pick a source before starting the stream so the audience joins into a live feed, not
-                                    an empty room.</p>
-                            </div>
-                        </aside>
-                    </div>
-                </div>
-            </section>
 
             <section class="card ops-card ops-panel ops-panel--messages">
                 <div class="card-title">Viewer Signals</div>
@@ -193,6 +147,53 @@
                         <p>Click any source to arm it for the next stream start or source switch.</p>
                     </div>
                     <div id="sources" class="sources-grid"></div>
+                </div>
+            </section>
+
+            <section class="card ops-card ops-panel ops-panel--stage">
+                <div class="card-title">Broadcast Access</div>
+                <div class="card-body">
+                    <div class="broadcast-layout">
+                        <div class="broadcast-main">
+                            <div class="section-head">
+                                <h2>Viewer entry point</h2>
+                                <p>Share the room link or let nearby users scan the QR code.</p>
+                            </div>
+                            <div class="link-card broadcast-link-card">
+                                <span class="link-label">Viewer link</span>
+                                <code id="viewerLink">http://LAN-IP:8080/view?room=demo</code>
+                            </div>
+                            <div class="preview-stage">
+                                <div class="preview-stage__head">
+                                    <div>
+                                        <span class="eyebrow">Live Preview</span>
+                                        <h2>Selected source preview</h2>
+                                    </div>
+                                    <span class="preview-stage__tag" id="selectedSourceBadge">No source selected</span>
+                                </div>
+                                <div class="preview-shell">
+                                    <video id="preview" autoplay playsinline muted></video>
+                                </div>
+                            </div>
+                        </div>
+
+                        <aside class="broadcast-side">
+                            <div class="qr-panel">
+                                <div class="section-head">
+                                    <h2>Join QR</h2>
+                                    <p id="qrHint">Scan to open viewer page</p>
+                                </div>
+                                <div class="qr-frame">
+                                    <img id="qrImage" alt="Viewer QR Code" class="qr-image" />
+                                </div>
+                            </div>
+                            <div class="ops-note">
+                                <span class="eyebrow">Operator note</span>
+                                <p>Pick a source before starting the stream so the audience joins into a live feed, not
+                                    an empty room.</p>
+                            </div>
+                        </aside>
+                    </div>
                 </div>
             </section>
 

@@ -215,7 +215,13 @@ function createServer({ port = 8080, publicDir }) {
         msg.type === "timer-reset"
       ) {
         if (room.host === ws) {
-          broadcastViewers(msg.roomId, msg);
+          const viewerId = String(msg.viewerId || "").trim();
+          if (viewerId) {
+            const viewer = room.viewers.get(viewerId);
+            if (viewer) send(viewer.ws, msg);
+          } else {
+            broadcastViewers(msg.roomId, msg);
+          }
         }
       }
     });

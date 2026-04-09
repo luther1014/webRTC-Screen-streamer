@@ -37,15 +37,21 @@
                     <button id="fullscreenToggle" class="viewer-frame-toggle" type="button" aria-label="Enter full screen">Expand</button>
                     <div class="video-wrapper viewer-video-wrapper">
                         <video id="video" autoplay playsinline controls controlsList="nofullscreen"></video>
-                        <div id="timerOverlay" class="timer-overlay timer-overlay--idle" hidden>
-                            <div class="timer-overlay__eyebrow">
-                                <span>Session timer</span>
-                                <strong id="timerStatus">Idle</strong>
+                        <div id="timerOverlay" class="timer-overlay timer-overlay--idle" hidden role="button"
+                            tabindex="0" aria-expanded="true" aria-label="Collapse session timer">
+                            <div class="timer-overlay__compact" aria-hidden="true">
+                                <span id="timerCompactValue" class="timer-overlay__compact-value">00</span>
                             </div>
-                            <span id="timerText" class="timer-overlay__time">00:00:00</span>
-                            <p id="timerMeta" class="timer-overlay__meta">Waiting for host timer</p>
-                            <div class="timer-overlay__track" aria-hidden="true">
-                                <span id="timerProgress" class="timer-overlay__progress"></span>
+                            <div class="timer-overlay__details">
+                                <div class="timer-overlay__eyebrow">
+                                    <span>Session timer</span>
+                                    <strong id="timerStatus">Idle</strong>
+                                </div>
+                                <span id="timerText" class="timer-overlay__time">00:00:00</span>
+                                <p id="timerMeta" class="timer-overlay__meta">Waiting for host timer</p>
+                                <div class="timer-overlay__track" aria-hidden="true">
+                                    <span id="timerProgress" class="timer-overlay__progress"></span>
+                                </div>
                             </div>
                         </div>
                     </div>

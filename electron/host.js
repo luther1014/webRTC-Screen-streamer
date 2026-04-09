@@ -322,7 +322,7 @@ function resetTimer() {
   clearInterval(timerInterval);
   timerInterval = null;
   if ($timerDisplay) $timerDisplay.textContent = "00:00:00";
-  send({ type: "timer-reset" });
+  // send({ type: "timer-reset" });
   if (joinedAsHost) {
     if ($timerStart) $timerStart.disabled = false;
     if ($timerStop) $timerStop.disabled = true;
@@ -635,6 +635,14 @@ function attachWsHandlers(socket) {
       viewerDisconnectAlerts.delete(msg.viewerId);
       updateViewerCount();
       ensurePeer(msg.viewerId);
+      if (timerRunning && timerStartTime) {
+        send({
+          type: "timer-start",
+          viewerId: msg.viewerId,
+          startTime: timerStartTime,
+          limitSeconds: getTimerLimitSeconds(),
+        });
+      }
       setStatus(screenStream ? "streaming" : "waiting-viewers");
       if (screenStream) {
         await makeOffer(msg.viewerId);

@@ -18,6 +18,7 @@ const $video = document.getElementById("video");
 const $emptyState = document.getElementById("emptyState");
 const $fullscreenToggle = document.getElementById("fullscreenToggle");
 const $timerOverlay = document.getElementById("timerOverlay");
+const $timerCompactValue = document.getElementById("timerCompactValue");
 const $timerStatus = document.getElementById("timerStatus");
 const $timerText = document.getElementById("timerText");
 const $timerMeta = document.getElementById("timerMeta");
@@ -43,6 +44,7 @@ let joinedViewer = false;
 let manuallyClosed = false;
 let timerElapsedNotified = false;
 let hasLiveStream = false;
+let timerOverlayCollapsed = localStorage.getItem("viewerTimerOverlayCollapsed") === "1";
 
 const rtcConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -110,6 +112,32 @@ function syncEmptyState() {
   const hasStream = !!$video.srcObject;
   $emptyState.style.display = hasStream ? "none" : "grid";
   $video.classList.toggle("video-live", hasStream);
+}
+
+function syncTimerOverlayCollapsed() {
+  if (!$timerOverlay) return;
+  $timerOverlay.classList.toggle(
+    "timer-overlay--collapsed",
+    timerOverlayCollapsed,
+  );
+  $timerOverlay.setAttribute(
+    "aria-expanded",
+    timerOverlayCollapsed ? "false" : "true",
+  );
+  $timerOverlay.setAttribute(
+    "aria-label",
+    timerOverlayCollapsed ? "Expand session timer" : "Collapse session timer",
+  );
+  localStorage.setItem(
+    "viewerTimerOverlayCollapsed",
+    timerOverlayCollapsed ? "1" : "0",
+  );
+}
+
+function toggleTimerOverlayCollapsed() {
+  if (!$timerOverlay || $timerOverlay.hidden) return;
+  timerOverlayCollapsed = !timerOverlayCollapsed;
+  syncTimerOverlayCollapsed();
 }
 
 function clearStreamRecovery() {
@@ -282,6 +310,14 @@ function formatDurationLabel(seconds) {
   return `${secs}s`;
 }
 
+function formatCompactMinutes(seconds, roundUp = false) {
+  const totalSeconds = Math.max(0, Math.floor(seconds));
+  const minutes = roundUp
+    ? Math.max(0, Math.ceil(totalSeconds / 60))
+    : Math.max(0, Math.floor(totalSeconds / 60));
+  return minutes.toString().padStart(2, "0");
+}
+
 function setTimerOverlayMode(mode) {
   if (!$timerOverlay) return;
   $timerOverlay.classList.remove(
@@ -336,6 +372,17 @@ function renderTimerOverlay(elapsedSeconds) {
       ? Math.min(100, (elapsed / timerLimitSeconds) * 100)
       : 36;
     $timerProgress.style.width = `${progress}%`;
+    if ($timerOverlay) {
+      $timerOverlay.style.setProperty("--timer-ring-progress", `${progress}%`);
+    }
+  }
+
+  if ($timerCompactValue) {
+    const compactMinutes =
+      hasLimit && !isElapsed
+        ? formatCompactMinutes(remaining, true)
+        : formatCompactMinutes(elapsed, false);
+    $timerCompactValue.textContent = compactMinutes;
   }
 
   if (isElapsed) {
@@ -372,6 +419,7 @@ function startViewerTimer(startTime, limitSeconds = 0) {
     : 0;
   timerElapsedNotified = false;
   $timerOverlay.hidden = false;
+  syncTimerOverlayCollapsed();
   updateTimerDisplay();
   clearInterval(timerInterval);
   timerInterval = setInterval(updateTimerDisplay, 1000);
@@ -391,6 +439,7 @@ function stopViewerTimer() {
   clearInterval(timerInterval);
   timerInterval = null;
   $timerOverlay.hidden = true;
+  if ($timerCompactValue) $timerCompactValue.textContent = "00";
   setTimerOverlayMode("idle");
 }
 
@@ -401,10 +450,14 @@ function resetViewerTimer() {
   clearInterval(timerInterval);
   timerInterval = null;
   $timerOverlay.hidden = true;
+  if ($timerCompactValue) $timerCompactValue.textContent = "00";
   $timerText.textContent = "00:00:00";
   if ($timerStatus) $timerStatus.textContent = "Idle";
   if ($timerMeta) $timerMeta.textContent = "Waiting for host timer";
   if ($timerProgress) $timerProgress.style.width = "0%";
+  if ($timerOverlay) {
+    $timerOverlay.style.setProperty("--timer-ring-progress", "0%");
+  }
   setTimerOverlayMode("idle");
 }
 
@@ -802,6 +855,19 @@ if ($fullscreenToggle) {
   });
 }
 
+if ($timerOverlay) {
+  $timerOverlay.addEventListener("click", () => {
+    toggleTimerOverlayCollapsed();
+  });
+
+  $timerOverlay.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggleTimerOverlayCollapsed();
+    }
+  });
+}
+
 document.addEventListener("fullscreenchange", syncFullscreenButton);
 
 window.addEventListener("beforeunload", () => {
@@ -811,6 +877,7 @@ window.addEventListener("beforeunload", () => {
 });
 
 syncFullscreenButton();
+syncTimerOverlayCollapsed();
 
 if (initialRoomKey) {
   connectSocket();
