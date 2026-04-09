@@ -174,6 +174,17 @@ function showReactionOverlay(viewerId, emoji) {
   );
 }
 
+function notifyViewerJoined(viewerId, subtitle) {
+  const shortViewerId = viewerId?.slice(0, 6) || "Unknown";
+  showHostToast({
+    icon: "\u25CE",
+    title: `Viewer ${shortViewerId} joined`,
+    subtitle,
+    tone: "info",
+  });
+  notifyHostSystem(`Viewer ${shortViewerId} joined`, subtitle);
+}
+
 function notifyViewerDisconnect(viewerId, subtitle, tone = "warn") {
   const normalizedViewerId = viewerId || "unknown";
   if (viewerDisconnectAlerts.has(normalizedViewerId)) return;
@@ -634,6 +645,12 @@ function attachWsHandlers(socket) {
       activeViewerIds.add(msg.viewerId);
       viewerDisconnectAlerts.delete(msg.viewerId);
       updateViewerCount();
+      notifyViewerJoined(
+        msg.viewerId,
+        screenStream
+          ? "They joined while the live stream was active."
+          : "They connected and are waiting for the stream to start.",
+      );
       ensurePeer(msg.viewerId);
       if (timerRunning && timerStartTime) {
         send({

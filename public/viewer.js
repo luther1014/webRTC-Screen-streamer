@@ -21,6 +21,8 @@ const $timerOverlay = document.getElementById("timerOverlay");
 const $timerCompactValue = document.getElementById("timerCompactValue");
 const $timerStatus = document.getElementById("timerStatus");
 const $timerText = document.getElementById("timerText");
+const $timerRemaining = document.getElementById("timerRemaining");
+const $timerLimitLabel = document.getElementById("timerLimitLabel");
 const $timerMeta = document.getElementById("timerMeta");
 const $timerProgress = document.getElementById("timerProgress");
 const $viewerToastStack = document.getElementById("viewerToastStack");
@@ -44,7 +46,8 @@ let joinedViewer = false;
 let manuallyClosed = false;
 let timerElapsedNotified = false;
 let hasLiveStream = false;
-let timerOverlayCollapsed = localStorage.getItem("viewerTimerOverlayCollapsed") === "1";
+let timerOverlayCollapsed =
+  localStorage.getItem("viewerTimerOverlayCollapsed") === "1";
 
 const rtcConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -340,10 +343,7 @@ function renderTimerOverlay(elapsedSeconds) {
   const warningThreshold = hasLimit
     ? Math.min(60, Math.max(10, Math.floor(timerLimitSeconds * 0.15)))
     : 0;
-  const isWarning =
-    hasLimit &&
-    !isElapsed &&
-    remaining <= warningThreshold;
+  const isWarning = hasLimit && !isElapsed && remaining <= warningThreshold;
 
   $timerText.textContent = formatTime(elapsed);
 
@@ -355,6 +355,24 @@ function renderTimerOverlay(elapsedSeconds) {
         : hasLimit
           ? "Running"
           : "Live";
+  }
+
+  if ($timerRemaining) {
+    if (isElapsed) {
+      $timerRemaining.textContent = `+${formatDurationLabel(
+        elapsed - timerLimitSeconds,
+      )}`;
+    } else if (hasLimit) {
+      $timerRemaining.textContent = formatDurationLabel(remaining);
+    } else {
+      $timerRemaining.textContent = "Open";
+    }
+  }
+
+  if ($timerLimitLabel) {
+    $timerLimitLabel.textContent = hasLimit
+      ? formatDurationLabel(timerLimitSeconds)
+      : "Open";
   }
 
   if ($timerMeta) {
@@ -370,7 +388,7 @@ function renderTimerOverlay(elapsedSeconds) {
   if ($timerProgress) {
     const progress = hasLimit
       ? Math.min(100, (elapsed / timerLimitSeconds) * 100)
-      : 36;
+      : 0;
     $timerProgress.style.width = `${progress}%`;
     if ($timerOverlay) {
       $timerOverlay.style.setProperty("--timer-ring-progress", `${progress}%`);
@@ -378,11 +396,7 @@ function renderTimerOverlay(elapsedSeconds) {
   }
 
   if ($timerCompactValue) {
-    const compactMinutes =
-      hasLimit && !isElapsed
-        ? formatCompactMinutes(remaining, true)
-        : formatCompactMinutes(elapsed, false);
-    $timerCompactValue.textContent = compactMinutes;
+    $timerCompactValue.textContent = formatCompactMinutes(elapsed, false);
   }
 
   if (isElapsed) {
@@ -403,11 +417,6 @@ function updateTimerDisplay() {
   if (timerLimitSeconds > 0 && elapsed >= timerLimitSeconds) {
     if (!timerElapsedNotified) {
       timerElapsedNotified = true;
-      showViewerToast(
-        "Timer elapsed",
-        "The host session timer has reached its limit.",
-        "warn",
-      );
     }
   }
 }
@@ -423,13 +432,6 @@ function startViewerTimer(startTime, limitSeconds = 0) {
   updateTimerDisplay();
   clearInterval(timerInterval);
   timerInterval = setInterval(updateTimerDisplay, 1000);
-  showViewerToast(
-    "Timer started",
-    timerLimitSeconds > 0
-      ? `${formatDurationLabel(timerLimitSeconds)} session limit is now running.`
-      : "The host started an open session timer.",
-    "info",
-  );
 }
 
 function stopViewerTimer() {
@@ -453,6 +455,8 @@ function resetViewerTimer() {
   if ($timerCompactValue) $timerCompactValue.textContent = "00";
   $timerText.textContent = "00:00:00";
   if ($timerStatus) $timerStatus.textContent = "Idle";
+  if ($timerRemaining) $timerRemaining.textContent = "--";
+  if ($timerLimitLabel) $timerLimitLabel.textContent = "Open";
   if ($timerMeta) $timerMeta.textContent = "Waiting for host timer";
   if ($timerProgress) $timerProgress.style.width = "0%";
   if ($timerOverlay) {
@@ -590,7 +594,8 @@ function ensurePc() {
       scheduleStreamRecovery({
         delay: 1200,
         title: "Recovering stream",
-        message: "The media session closed. Rejoining if the host is still live.",
+        message:
+          "The media session closed. Rejoining if the host is still live.",
       });
     } else {
       setStatus(activePc.connectionState);
@@ -688,11 +693,7 @@ function connectSocket() {
       setConnectButtonLabel("Retry join");
       setHint(describeJoinReason(msg.reason));
       log($log, "Join denied:", describeJoinReason(msg.reason));
-      showViewerToast(
-        "Join denied",
-        describeJoinReason(msg.reason),
-        "error",
-      );
+      showViewerToast("Join denied", describeJoinReason(msg.reason), "error");
       closeSocket({ manual: true });
       return;
     }
@@ -773,21 +774,11 @@ function connectSocket() {
 
     if (msg.type === "timer-stop") {
       stopViewerTimer();
-      showViewerToast(
-        "Timer stopped",
-        "The host ended the session timer.",
-        "info",
-      );
       return;
     }
 
     if (msg.type === "timer-reset") {
       resetViewerTimer();
-      showViewerToast(
-        "Timer reset",
-        "The session timer was cleared by the host.",
-        "info",
-      );
     }
   };
 

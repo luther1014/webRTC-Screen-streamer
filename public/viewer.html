@@ -9,7 +9,8 @@
 </head>
 
 <body class="viewer-app">
-    <button id="darkModeToggle" class="top-right-btn viewer-theme-toggle" type="button" aria-label="Toggle dark mode">&#x1F319;</button>
+    <button id="darkModeToggle" class="top-right-btn viewer-theme-toggle" type="button"
+        aria-label="Toggle dark mode">&#x1F319;</button>
 
     <div class="viewer-shell">
         <div id="viewerToastStack" class="viewer-toast-stack" aria-live="polite" aria-atomic="false"></div>
@@ -34,7 +35,8 @@
                 </div>
 
                 <div class="viewer-stage__frame" id="viewerStageFrame">
-                    <button id="fullscreenToggle" class="viewer-frame-toggle" type="button" aria-label="Enter full screen">Expand</button>
+                    <button id="fullscreenToggle" class="viewer-frame-toggle" type="button"
+                        aria-label="Enter full screen">Expand</button>
                     <div class="video-wrapper viewer-video-wrapper">
                         <video id="video" autoplay playsinline controls controlsList="nofullscreen"></video>
                         <div id="timerOverlay" class="timer-overlay timer-overlay--idle" hidden role="button"
@@ -48,6 +50,16 @@
                                     <strong id="timerStatus">Idle</strong>
                                 </div>
                                 <span id="timerText" class="timer-overlay__time">00:00:00</span>
+                                <div class="timer-overlay__stats">
+                                    <div class="timer-overlay__stat">
+                                        <span>Remaining</span>
+                                        <strong id="timerRemaining">--</strong>
+                                    </div>
+                                    <div class="timer-overlay__stat">
+                                        <span>Limit</span>
+                                        <strong id="timerLimitLabel">Open</strong>
+                                    </div>
+                                </div>
                                 <p id="timerMeta" class="timer-overlay__meta">Waiting for host timer</p>
                                 <div class="timer-overlay__track" aria-hidden="true">
                                     <span id="timerProgress" class="timer-overlay__progress"></span>
