@@ -56,3 +56,120 @@ pre {
   overflow: auto;
   max-height: 220px;
 }
+
+.top-right-btn {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  color: #111;
+  font-size: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  z-index: 20;
+}
+
+.top-right-btn:hover {
+  transform: translateY(-1px);
+  background: #f7f8fb;
+}
+
+body.dark-mode {
+  background: #11151f;
+  color: #eef2ff;
+}
+
+body.dark-mode code {
+  background: #1c2330;
+  color: #f5f7ff;
+}
+
+body.dark-mode .chat-panel,
+body.dark-mode .emoji-row,
+body.dark-mode .top-right-btn,
+body.dark-mode button {
+  background: #1a1f2d;
+  color: #eef2ff;
+}
+
+body.dark-mode .top-right-btn {
+  background: rgba(32, 38, 56, 0.96);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+body.dark-mode .emoji-btn {
+  background: #191f2b;
+  border-color: #374151;
+}
+
+body.dark-mode .emoji-btn:hover,
+body.dark-mode .emoji-btn:focus-visible {
+  background: #2b3350;
+}
+
+.emoji-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 6px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.emoji-btn {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 16px;
+  border: 1px solid #d2d6dc;
+  background: #ffffff;
+  font-size: 22px;
+  line-height: 1;
+  padding: 0;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+}
+
+.emoji-btn:hover,
+.emoji-btn:focus-visible {
+  border-color: #8b9ff1;
+  background: #f3f6ff;
+  transform: translateY(-1px);
+}
+
+.emoji-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 1px rgba(16, 24, 40, 0.12);
+}
+
+.chat-panel {
+  min-height: 140px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid #ddd;
+  background: #f8f9fb;
+  border-radius: 12px;
+}
+
+.chat-item {
+  margin-bottom: 8px;
+  font-size: 0.95rem;
+}
+
+.chat-item time {
+  color: #666;
+  font-size: 0.83rem;
+  margin-left: 8px;
+}

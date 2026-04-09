@@ -112,6 +112,14 @@ wss.on("connection", (ws) => {
       }
     }
 
+    if (msg.type === "viewer-message") {
+      const viewerId = msg.viewerId;
+      if (viewerId && room.host && room.host.readyState === WebSocket.OPEN) {
+        send(room.host, msg);
+      }
+      return;
+    }
+
     // broadcast timer messages from host to all viewers
     if (msg.type === "timer-start" || msg.type === "timer-stop" || msg.type === "timer-reset") {
       if (room.host === ws) {

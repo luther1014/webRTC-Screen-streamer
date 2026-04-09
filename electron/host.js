@@ -15,6 +15,7 @@ const $sources = document.getElementById("sources");
 const $viewerLink = document.getElementById("viewerLink");
 const $qrImage = document.getElementById("qrImage");
 const $qrHint = document.getElementById("qrHint");
+const $messagePanel = document.getElementById("messagePanel");
 const $log = document.getElementById("log");
 
 function log(...args) {
@@ -30,6 +31,18 @@ function log(...args) {
 
 function setStatus(text) {
   if ($status) $status.textContent = text;
+}
+
+function addViewerMessage(viewerId, emoji) {
+  if (!$messagePanel) return;
+  const time = new Date().toLocaleTimeString();
+  const item = document.createElement("div");
+  item.className = "chat-item";
+  item.innerHTML = `<strong>Viewer ${viewerId?.slice(0, 6) || "?"}</strong>: ${emoji} <time>${time}</time>`;
+  $messagePanel.prepend(item);
+  while ($messagePanel.childElementCount > 50) {
+    $messagePanel.removeChild($messagePanel.lastChild);
+  }
 }
 
 let ws = null;
@@ -371,6 +384,12 @@ function attachWsHandlers(socket) {
         } catch {}
       }
       peers.delete(msg.viewerId);
+      return;
+    }
+
+    if (msg.type === "viewer-message") {
+      log("Viewer message:", msg.viewerId, msg.emoji);
+      addViewerMessage(msg.viewerId, msg.emoji);
       return;
     }
 

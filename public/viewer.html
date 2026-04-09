@@ -9,6 +9,7 @@
 </head>
 
 <body>
+    <button id="darkModeToggle" class="top-right-btn" type="button" aria-label="Toggle dark mode">🌙</button>
     <h2>Viewer</h2>
 
     <div class="row">
@@ -16,11 +17,21 @@
         <div>Status: <code id="status">connecting</code></div>
     </div>
 
+
     <div class="video-wrapper">
         <video id="video" autoplay playsinline controls></video>
         <div id="timerOverlay" class="timer-overlay" style="display:none;">
             <span id="timerText">00:00:00</span>
         </div>
+    </div>
+    <div class="emoji-row">
+        <button class="emoji-btn" data-emoji="❤️">❤️</button>
+        <button class="emoji-btn" data-emoji="👍">👍</button>
+        <button class="emoji-btn" data-emoji="⏮️">⏮️</button>
+        <button class="emoji-btn" data-emoji="⏭️">⏭️</button>
+        <button class="emoji-btn" data-emoji="💡">💡</button>
+        <button class="emoji-btn" data-emoji="🔊">🔊</button>
+        <button class="emoji-btn" data-emoji="🆘">🆘</button>
     </div>
 
     <h3>Log</h3>

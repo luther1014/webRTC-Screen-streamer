@@ -9,6 +9,8 @@ const $video = document.getElementById("video");
 const $timerOverlay = document.getElementById("timerOverlay");
 const $timerText = document.getElementById("timerText");
 const $log = document.getElementById("log");
+const $emojiButtons = document.querySelectorAll(".emoji-btn");
+const $darkModeToggle = document.getElementById("darkModeToggle");
 
 $room.textContent = roomId;
 
@@ -75,9 +77,46 @@ function resetViewerTimer() {
 function setStatus(s) {
   $status.textContent = s;
 }
+
+function setDarkMode(enabled) {
+  document.body.classList.toggle("dark-mode", enabled);
+  if ($darkModeToggle) {
+    $darkModeToggle.textContent = enabled ? "☀️" : "🌙";
+  }
+  localStorage.setItem("viewerDarkMode", enabled ? "1" : "0");
+}
+
+function toggleDarkMode() {
+  setDarkMode(!document.body.classList.contains("dark-mode"));
+}
+
+if ($darkModeToggle) {
+  $darkModeToggle.addEventListener("click", toggleDarkMode);
+}
+
+const savedDarkMode = localStorage.getItem("viewerDarkMode");
+if (savedDarkMode === "1") {
+  setDarkMode(true);
+}
+
 function send(msg) {
+  if (socket.readyState !== WebSocket.OPEN) return;
   socket.send(JSON.stringify({ ...msg, roomId, viewerId }));
 }
+function sendViewerEmoji(emoji) {
+  if (socket.readyState !== WebSocket.OPEN) {
+    log($log, "Cannot send emoji before WS is open.");
+    return;
+  }
+  send({ type: "viewer-message", emoji });
+  log($log, "Sent emoji:", emoji);
+}
+
+$emojiButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    sendViewerEmoji(button.dataset.emoji);
+  });
+});
 function ensurePc() {
   if (pc) return pc;
 
