@@ -8,37 +8,123 @@
     <link rel="stylesheet" href="/styles.css" />
 </head>
 
-<body>
-    <button id="darkModeToggle" class="top-right-btn" type="button" aria-label="Toggle dark mode">🌙</button>
-    <h2>Viewer</h2>
-    <p class="subtitle">Join the host with the shared room key, then wait for the stream to start.</p>
+<body class="viewer-app">
+    <button id="darkModeToggle" class="top-right-btn viewer-theme-toggle" type="button" aria-label="Toggle dark mode">&#x1F319;</button>
 
-    <div class="row viewer-toolbar">
-        <div>Room: <code id="room"></code></div>
-        <label class="inline-field">Room key <input id="roomKey" maxlength="12" autocomplete="off" /></label>
-        <button id="connectBtn" class="primary-btn" type="button">Connect</button>
-        <div>Status: <code id="status">idle</code></div>
-    </div>
-    <p id="connectionHint" class="hint-text">Use the room key included in the host link or ask the host to share it.</p>
+    <div class="viewer-shell">
+        <div id="viewerToastStack" class="viewer-toast-stack" aria-live="polite" aria-atomic="false"></div>
 
-    <div class="video-wrapper">
-        <video id="video" autoplay playsinline controls></video>
-        <div id="timerOverlay" class="timer-overlay" style="display:none;">
-            <span id="timerText">00:00:00</span>
-        </div>
-    </div>
-    <div class="emoji-row">
-        <button class="emoji-btn" data-emoji="❤️">❤️</button>
-        <button class="emoji-btn" data-emoji="👍">👍</button>
-        <button class="emoji-btn" data-emoji="⏮️">⏮️</button>
-        <button class="emoji-btn" data-emoji="⏭️">⏭️</button>
-        <button class="emoji-btn" data-emoji="💡">💡</button>
-        <button class="emoji-btn" data-emoji="🔊">🔊</button>
-        <button class="emoji-btn" data-emoji="🆘">🆘</button>
-    </div>
+        <header class="viewer-header viewer-header--simple">
+            <div class="viewer-header__intro">
+                <!-- <span class="eyebrow">Live Monitor</span> -->
+                <h1>Viewer Console</h1>
+                <p class="subtitle">Join the secure room, watch the live stream, and send quick reactions back to the
+                    host without leaving the session.</p>
+            </div>
+        </header>
 
-    <h3>Log</h3>
-    <pre id="log"></pre>
+        <main class="viewer-grid">
+            <section class="viewer-stage">
+                <div class="viewer-stage__head">
+                    <div>
+                        <!-- <span class="eyebrow">Watch Surface</span> -->
+                        <h2>Live session stream</h2>
+                    </div>
+                    <span class="viewer-stage__tag" id="stageTag">Standby</span>
+                </div>
+
+                <div class="viewer-stage__frame" id="viewerStageFrame">
+                    <button id="fullscreenToggle" class="viewer-frame-toggle" type="button" aria-label="Enter full screen">Expand</button>
+                    <div class="video-wrapper viewer-video-wrapper">
+                        <video id="video" autoplay playsinline controls controlsList="nofullscreen"></video>
+                        <div id="timerOverlay" class="timer-overlay timer-overlay--idle" hidden>
+                            <div class="timer-overlay__eyebrow">
+                                <span>Session timer</span>
+                                <strong id="timerStatus">Idle</strong>
+                            </div>
+                            <span id="timerText" class="timer-overlay__time">00:00:00</span>
+                            <p id="timerMeta" class="timer-overlay__meta">Waiting for host timer</p>
+                            <div class="timer-overlay__track" aria-hidden="true">
+                                <span id="timerProgress" class="timer-overlay__progress"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="viewer-stage__empty" id="emptyState">
+                        <strong>Ready for stream handoff</strong>
+                        <p id="connectionHint" class="hint-text">Use the room key included in the host link or ask the
+                            host to share it.</p>
+                    </div>
+                </div>
+
+                <section class="viewer-stage__reactions viewer-panel">
+                    <div class="section-head">
+                        <h2>Quick reactions</h2>
+                    </div>
+                    <div class="emoji-row viewer-emoji-grid">
+                        <button class="emoji-btn" data-emoji="&#x2764;&#xFE0F;" type="button">&#x2764;&#xFE0F;</button>
+                        <button class="emoji-btn" data-emoji="&#x1F44D;" type="button">&#x1F44D;</button>
+                        <button class="emoji-btn" data-emoji="&#x23EE;&#xFE0F;" type="button">&#x23EE;&#xFE0F;</button>
+                        <button class="emoji-btn" data-emoji="&#x23ED;&#xFE0F;" type="button">&#x23ED;&#xFE0F;</button>
+                        <button class="emoji-btn" data-emoji="&#x1F4A1;" type="button">&#x1F4A1;</button>
+                        <button class="emoji-btn" data-emoji="&#x1F50A;" type="button">&#x1F50A;</button>
+                        <button class="emoji-btn" data-emoji="&#x1F198;" type="button">&#x1F198;</button>
+                    </div>
+                </section>
+            </section>
+
+            <aside class="viewer-sidebar">
+                <section class="viewer-panel">
+                    <div class="section-head">
+                        <h2>Join room</h2>
+                        <p>Enter the shared room key, then connect or reconnect to the host session.</p>
+                    </div>
+                    <div class="viewer-connect-panel">
+                        <label class="inline-field">
+                            <span>Room key</span>
+                            <input id="roomKey" maxlength="12" autocomplete="off" />
+                        </label>
+                        <button id="connectBtn" class="primary-btn" type="button">Connect</button>
+                    </div>
+                </section>
+
+                <section class="viewer-panel viewer-session-panel">
+                    <div class="section-head">
+                        <h2>Session state</h2>
+                        <p>Track current room state, identity, and stream readiness.</p>
+                    </div>
+                    <div class="status-block viewer-status-block">
+                        <span class="status-block__label">Session state</span>
+                        <div class="status-block__value">
+                            <span id="viewerStatusChip" class="status-chip status-idle">Idle</span>
+                            <code id="status">idle</code>
+                        </div>
+                    </div>
+                    <div class="signal-pill-grid viewer-pill-grid">
+                        <div class="signal-pill">
+                            <span class="signal-pill__label">Room</span>
+                            <strong id="room"></strong>
+                        </div>
+                        <div class="signal-pill">
+                            <span class="signal-pill__label">Viewer ID</span>
+                            <strong id="viewerIdLabel">Pending</strong>
+                        </div>
+                        <div class="signal-pill">
+                            <span class="signal-pill__label">Feed</span>
+                            <strong id="streamStateLabel">Awaiting signal</strong>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="viewer-panel">
+                    <div class="section-head">
+                        <h2>Connection log</h2>
+                        <p>Low-level socket and stream events appear here for troubleshooting.</p>
+                    </div>
+                    <pre id="log"></pre>
+                </section>
+            </aside>
+        </main>
+    </div>
 
     <script type="module" src="/viewer.js"></script>
 </body>

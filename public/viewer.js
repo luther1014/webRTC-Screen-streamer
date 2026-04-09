@@ -5,29 +5,44 @@ const viewerId = qs("id") || randomId();
 const initialRoomKey = qs("key") || "";
 
 const $room = document.getElementById("room");
+const $viewerIdLabel = document.getElementById("viewerIdLabel");
 const $roomKey = document.getElementById("roomKey");
 const $connectBtn = document.getElementById("connectBtn");
 const $connectionHint = document.getElementById("connectionHint");
 const $status = document.getElementById("status");
+const $viewerStatusChip = document.getElementById("viewerStatusChip");
+const $streamStateLabel = document.getElementById("streamStateLabel");
+const $stageTag = document.getElementById("stageTag");
+const $viewerStageFrame = document.getElementById("viewerStageFrame");
 const $video = document.getElementById("video");
+const $emptyState = document.getElementById("emptyState");
+const $fullscreenToggle = document.getElementById("fullscreenToggle");
 const $timerOverlay = document.getElementById("timerOverlay");
+const $timerStatus = document.getElementById("timerStatus");
 const $timerText = document.getElementById("timerText");
+const $timerMeta = document.getElementById("timerMeta");
+const $timerProgress = document.getElementById("timerProgress");
+const $viewerToastStack = document.getElementById("viewerToastStack");
 const $log = document.getElementById("log");
 const $emojiButtons = document.querySelectorAll(".emoji-btn");
 const $darkModeToggle = document.getElementById("darkModeToggle");
 
 $room.textContent = roomId;
+if ($viewerIdLabel) $viewerIdLabel.textContent = viewerId.slice(0, 8);
 if ($roomKey) $roomKey.value = initialRoomKey.toUpperCase();
 
 let pc = null;
 let socket = null;
 let reconnectTimer = null;
+let streamRecoveryTimer = null;
 let reconnectAttempt = 0;
 let timerInterval = null;
 let timerStartTime = null;
 let timerLimitSeconds = 0;
 let joinedViewer = false;
 let manuallyClosed = false;
+let timerElapsedNotified = false;
+let hasLiveStream = false;
 
 const rtcConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -50,12 +65,168 @@ function describeJoinReason(reason) {
   return reason || "join-denied";
 }
 
+function formatStatusLabel(value) {
+  const normalized = String(value || "idle").replace(/-/g, " ");
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
 function setStatus(status) {
   $status.textContent = status;
+  if ($viewerStatusChip) {
+    $viewerStatusChip.textContent = formatStatusLabel(status);
+    $viewerStatusChip.classList.remove(
+      "status-idle",
+      "status-good",
+      "status-warn",
+    );
+
+    if (["connected", "host-ready", "connected-live"].includes(status)) {
+      $viewerStatusChip.classList.add("status-good");
+    } else if (
+      ["join-denied", "host-left", "replaced", "ws-closed"].includes(status)
+    ) {
+      $viewerStatusChip.classList.add("status-warn");
+    } else {
+      $viewerStatusChip.classList.add("status-idle");
+    }
+  }
 }
 
 function setHint(text) {
   if ($connectionHint) $connectionHint.textContent = text;
+}
+
+function setStreamState(text, tag = text) {
+  if ($streamStateLabel) $streamStateLabel.textContent = text;
+  if ($stageTag) $stageTag.textContent = tag;
+}
+
+function setConnectButtonLabel(text) {
+  if ($connectBtn) $connectBtn.textContent = text;
+}
+
+function syncEmptyState() {
+  if (!$emptyState || !$video) return;
+  const hasStream = !!$video.srcObject;
+  $emptyState.style.display = hasStream ? "none" : "grid";
+  $video.classList.toggle("video-live", hasStream);
+}
+
+function clearStreamRecovery() {
+  if (streamRecoveryTimer) {
+    clearTimeout(streamRecoveryTimer);
+    streamRecoveryTimer = null;
+  }
+}
+
+function scheduleStreamRecovery({
+  delay = 1800,
+  title = "Recovering stream",
+  message = "Trying to restore the live feed.",
+} = {}) {
+  if (
+    streamRecoveryTimer ||
+    manuallyClosed ||
+    !joinedViewer ||
+    !socket ||
+    socket.readyState !== WebSocket.OPEN
+  ) {
+    return;
+  }
+
+  setHint(message);
+  showViewerToast(title, message, "warn");
+
+  streamRecoveryTimer = window.setTimeout(() => {
+    streamRecoveryTimer = null;
+    if (
+      manuallyClosed ||
+      !joinedViewer ||
+      !socket ||
+      socket.readyState !== WebSocket.OPEN
+    ) {
+      return;
+    }
+
+    log($log, "Media session stalled. Rejoining room to recover the stream.");
+    setStatus("recovering-stream");
+    setStreamState("Recovering live stream", "Recovering");
+    setConnectButtonLabel("Recovering...");
+    setHint("Rejoining the host room to restore the stream.");
+    closeSocket({ manual: false });
+  }, delay);
+}
+
+function isViewerStageFullscreen() {
+  return document.fullscreenElement === $viewerStageFrame;
+}
+
+function syncFullscreenButton() {
+  if (!$fullscreenToggle) return;
+  const active = isViewerStageFullscreen();
+  $fullscreenToggle.textContent = active ? "Exit" : "Expand";
+  $fullscreenToggle.setAttribute(
+    "aria-label",
+    active ? "Exit full screen" : "Enter full screen",
+  );
+  $fullscreenToggle.title = active ? "Exit full screen" : "Enter full screen";
+  $fullscreenToggle.classList.toggle("viewer-frame-toggle--active", active);
+}
+
+async function toggleViewerFullscreen() {
+  if (!$viewerStageFrame || !document.fullscreenEnabled) {
+    showViewerToast(
+      "Fullscreen unavailable",
+      "This device does not allow fullscreen for the viewer frame.",
+      "warn",
+    );
+    return;
+  }
+
+  try {
+    if (isViewerStageFullscreen()) {
+      await document.exitFullscreen();
+    } else {
+      await $viewerStageFrame.requestFullscreen();
+    }
+  } catch (error) {
+    log($log, "Fullscreen toggle failed:", String(error));
+    showViewerToast(
+      "Fullscreen failed",
+      "The viewer could not enter fullscreen mode.",
+      "error",
+    );
+  }
+}
+
+function showViewerToast(title, message = "", tone = "info") {
+  if (!$viewerToastStack) return;
+
+  const toast = document.createElement("article");
+  toast.className = `viewer-toast viewer-toast--${tone}`;
+
+  const strong = document.createElement("strong");
+  strong.textContent = title;
+  toast.appendChild(strong);
+
+  if (message) {
+    const body = document.createElement("p");
+    body.textContent = message;
+    toast.appendChild(body);
+  }
+
+  $viewerToastStack.appendChild(toast);
+
+  while ($viewerToastStack.children.length > 3) {
+    $viewerToastStack.firstElementChild?.remove();
+  }
+
+  const dismiss = () => {
+    toast.classList.add("viewer-toast--exit");
+    window.setTimeout(() => toast.remove(), 260);
+  };
+
+  window.setTimeout(dismiss, 3200);
 }
 
 function clearReconnect() {
@@ -66,13 +237,16 @@ function clearReconnect() {
 }
 
 function resetPeer() {
+  clearStreamRecovery();
   if (pc) {
     try {
       pc.close();
     } catch {}
     pc = null;
   }
+  hasLiveStream = false;
   $video.srcObject = null;
+  syncEmptyState();
 }
 
 function scheduleReconnect() {
@@ -81,6 +255,8 @@ function scheduleReconnect() {
   reconnectAttempt += 1;
   const delay = Math.min(5000, 1000 * reconnectAttempt);
   setStatus("reconnecting");
+  setStreamState("Reconnecting to signal", "Reconnecting");
+  setConnectButtonLabel("Reconnect");
   setHint(`Connection lost. Retrying in ${Math.ceil(delay / 1000)}s.`);
   reconnectTimer = setTimeout(() => {
     log($log, "Retrying signaling connection.");
@@ -95,53 +271,147 @@ function formatTime(seconds) {
   return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
-function updateTimerDisplay() {
-  if (!timerStartTime) return;
-  const elapsed = Math.max(0, Math.floor((Date.now() - timerStartTime) / 1000));
+function formatDurationLabel(seconds) {
+  const total = Math.max(0, Math.floor(seconds));
+  const hrs = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+
+  if (hrs > 0) return `${hrs}h ${mins}m`;
+  if (mins > 0) return `${mins}m ${secs}s`;
+  return `${secs}s`;
+}
+
+function setTimerOverlayMode(mode) {
+  if (!$timerOverlay) return;
+  $timerOverlay.classList.remove(
+    "timer-overlay--idle",
+    "timer-overlay--open",
+    "timer-overlay--unlimited",
+    "timer-overlay--warning",
+    "timer-overlay--elapsed",
+  );
+  $timerOverlay.classList.add(`timer-overlay--${mode}`);
+}
+
+function renderTimerOverlay(elapsedSeconds) {
+  if (!$timerOverlay || !$timerText) return;
+
+  const elapsed = Math.max(0, Math.floor(elapsedSeconds));
+  const hasLimit = timerLimitSeconds > 0;
+  const remaining = hasLimit ? Math.max(0, timerLimitSeconds - elapsed) : 0;
+  const isElapsed = hasLimit && elapsed >= timerLimitSeconds;
+  const warningThreshold = hasLimit
+    ? Math.min(60, Math.max(10, Math.floor(timerLimitSeconds * 0.15)))
+    : 0;
+  const isWarning =
+    hasLimit &&
+    !isElapsed &&
+    remaining <= warningThreshold;
+
   $timerText.textContent = formatTime(elapsed);
-  if (timerLimitSeconds > 0 && elapsed >= timerLimitSeconds) {
-    $timerOverlay.style.background = "rgba(255,200,200,0.9)";
-    $timerOverlay.style.color = "#000";
+
+  if ($timerStatus) {
+    $timerStatus.textContent = isElapsed
+      ? "Elapsed"
+      : isWarning
+        ? "Closing"
+        : hasLimit
+          ? "Running"
+          : "Live";
+  }
+
+  if ($timerMeta) {
+    if (isElapsed) {
+      $timerMeta.textContent = `${formatDurationLabel(elapsed - timerLimitSeconds)} over the ${formatDurationLabel(timerLimitSeconds)} limit`;
+    } else if (hasLimit) {
+      $timerMeta.textContent = `${formatDurationLabel(remaining)} remaining of ${formatDurationLabel(timerLimitSeconds)}`;
+    } else {
+      $timerMeta.textContent = "No limit set for this session timer";
+    }
+  }
+
+  if ($timerProgress) {
+    const progress = hasLimit
+      ? Math.min(100, (elapsed / timerLimitSeconds) * 100)
+      : 36;
+    $timerProgress.style.width = `${progress}%`;
+  }
+
+  if (isElapsed) {
+    setTimerOverlayMode("elapsed");
+  } else if (isWarning) {
+    setTimerOverlayMode("warning");
+  } else if (hasLimit) {
+    setTimerOverlayMode("open");
   } else {
-    $timerOverlay.style.background = "rgba(0,0,0,0.7)";
-    $timerOverlay.style.color = "#fff";
+    setTimerOverlayMode("unlimited");
+  }
+}
+
+function updateTimerDisplay() {
+  if (timerStartTime == null) return;
+  const elapsed = Math.max(0, Math.floor((Date.now() - timerStartTime) / 1000));
+  renderTimerOverlay(elapsed);
+  if (timerLimitSeconds > 0 && elapsed >= timerLimitSeconds) {
+    if (!timerElapsedNotified) {
+      timerElapsedNotified = true;
+      showViewerToast(
+        "Timer elapsed",
+        "The host session timer has reached its limit.",
+        "warn",
+      );
+    }
   }
 }
 
 function startViewerTimer(startTime, limitSeconds = 0) {
-  timerStartTime = startTime;
-  timerLimitSeconds = Number.isFinite(limitSeconds) ? limitSeconds : 0;
-  $timerOverlay.style.display = "block";
+  timerStartTime = Number(startTime) || Date.now();
+  timerLimitSeconds = Number.isFinite(Number(limitSeconds))
+    ? Number(limitSeconds)
+    : 0;
+  timerElapsedNotified = false;
+  $timerOverlay.hidden = false;
   updateTimerDisplay();
   clearInterval(timerInterval);
   timerInterval = setInterval(updateTimerDisplay, 1000);
+  showViewerToast(
+    "Timer started",
+    timerLimitSeconds > 0
+      ? `${formatDurationLabel(timerLimitSeconds)} session limit is now running.`
+      : "The host started an open session timer.",
+    "info",
+  );
 }
 
 function stopViewerTimer() {
   timerStartTime = null;
   timerLimitSeconds = 0;
+  timerElapsedNotified = false;
   clearInterval(timerInterval);
   timerInterval = null;
-  $timerOverlay.style.display = "none";
-  $timerOverlay.style.background = "rgba(0,0,0,0.7)";
-  $timerOverlay.style.color = "#fff";
+  $timerOverlay.hidden = true;
+  setTimerOverlayMode("idle");
 }
 
 function resetViewerTimer() {
   timerStartTime = null;
   timerLimitSeconds = 0;
+  timerElapsedNotified = false;
   clearInterval(timerInterval);
   timerInterval = null;
-  $timerOverlay.style.display = "none";
+  $timerOverlay.hidden = true;
   $timerText.textContent = "00:00:00";
-  $timerOverlay.style.background = "rgba(0,0,0,0.7)";
-  $timerOverlay.style.color = "#fff";
+  if ($timerStatus) $timerStatus.textContent = "Idle";
+  if ($timerMeta) $timerMeta.textContent = "Waiting for host timer";
+  if ($timerProgress) $timerProgress.style.width = "0%";
+  setTimerOverlayMode("idle");
 }
 
 function setDarkMode(enabled) {
   document.body.classList.toggle("dark-mode", enabled);
   if ($darkModeToggle) {
-    $darkModeToggle.textContent = enabled ? "☀️" : "🌙";
+    $darkModeToggle.textContent = enabled ? "\u2600\uFE0F" : "\uD83C\uDF19";
   }
   localStorage.setItem("viewerDarkMode", enabled ? "1" : "0");
 }
@@ -192,25 +462,90 @@ $emojiButtons.forEach((button) => {
 function ensurePc() {
   if (pc) return pc;
 
-  pc = new RTCPeerConnection(rtcConfig);
+  const activePc = new RTCPeerConnection(rtcConfig);
+  pc = activePc;
 
-  pc.onicecandidate = (e) => {
+  activePc.onicecandidate = (e) => {
     if (e.candidate) send({ type: "ice", candidate: e.candidate });
   };
 
-  pc.ontrack = (e) => {
+  activePc.ontrack = (e) => {
     if ($video.srcObject !== e.streams[0]) {
+      clearStreamRecovery();
+      hasLiveStream = true;
       $video.srcObject = e.streams[0];
+      syncEmptyState();
       log($log, "Received remote stream.");
+      setStatus("connected-live");
+      setStreamState("Live stream connected", "Live");
+      setHint("Stream received. Use reactions if you need to signal the host.");
+      showViewerToast(
+        "Stream is live",
+        "The host video feed is now playing.",
+        "success",
+      );
     }
   };
 
-  pc.onconnectionstatechange = () => {
-    setStatus(pc.connectionState);
-    log($log, "pc state=", pc.connectionState);
+  activePc.onconnectionstatechange = () => {
+    if (activePc.connectionState === "connected") {
+      clearStreamRecovery();
+      setStatus("connected-live");
+      setStreamState("Live stream connected", "Live");
+    } else if (activePc.connectionState === "disconnected") {
+      setStatus("disconnected");
+      setStreamState("Stream interrupted", "Interrupted");
+      setHint("The stream connection dropped. Trying to recover.");
+      if (hasLiveStream) {
+        showViewerToast(
+          "Stream interrupted",
+          "The live feed dropped for a moment.",
+          "warn",
+        );
+      }
+      scheduleStreamRecovery({
+        delay: 2200,
+        title: "Recovering stream",
+        message: "The live feed dropped. Rejoining the session now.",
+      });
+    } else if (activePc.connectionState === "failed") {
+      setStatus("failed");
+      setStreamState("Stream failed", "Failed");
+      setHint("The live stream failed. Trying to reconnect automatically.");
+      if (hasLiveStream) {
+        showViewerToast(
+          "Stream failed",
+          "The viewer lost the live media connection.",
+          "error",
+        );
+      }
+      scheduleStreamRecovery({
+        delay: 700,
+        title: "Rejoining stream",
+        message: "The live stream failed. Rejoining the host room.",
+      });
+    } else if (activePc.connectionState === "closed") {
+      setStatus("closed");
+      setStreamState("Stream closed", "Closed");
+      if (hasLiveStream) {
+        showViewerToast(
+          "Stream stopped",
+          "The live media session has ended.",
+          "warn",
+        );
+      }
+      scheduleStreamRecovery({
+        delay: 1200,
+        title: "Recovering stream",
+        message: "The media session closed. Rejoining if the host is still live.",
+      });
+    } else {
+      setStatus(activePc.connectionState);
+    }
+    log($log, "pc state=", activePc.connectionState);
   };
 
-  return pc;
+  return activePc;
 }
 
 function closeSocket({ manual = false } = {}) {
@@ -228,12 +563,15 @@ function connectSocket() {
   const roomKey = getRoomKey();
   if (!roomKey) {
     setStatus("room-key-required");
+    setStreamState("Room key required", "Locked");
+    setConnectButtonLabel("Connect");
     setHint("Enter the room key shared by the host.");
     log($log, "Connection blocked: room key missing.");
     return;
   }
 
   clearReconnect();
+  clearStreamRecovery();
   if (socket) {
     closeSocket({ manual: true });
   }
@@ -242,6 +580,8 @@ function connectSocket() {
   joinedViewer = false;
   resetPeer();
   setStatus("connecting");
+  setStreamState("Opening signaling link", "Connecting");
+  setConnectButtonLabel("Connecting...");
   setHint("Connecting to the signaling server...");
   log($log, "Connecting to signaling server.");
 
@@ -251,6 +591,7 @@ function connectSocket() {
   activeSocket.onopen = () => {
     if (socket !== activeSocket) return;
     setStatus("joining");
+    setStreamState("Authenticating room access", "Joining");
     setHint("Sending join request to the host room.");
     activeSocket.send(
       JSON.stringify({
@@ -268,9 +609,15 @@ function connectSocket() {
     const msg = JSON.parse(ev.data);
 
     if (msg.type === "joined") {
+      clearStreamRecovery();
       joinedViewer = true;
       reconnectAttempt = 0;
       setStatus(msg.waitingForHost ? "waiting-host" : "connected");
+      setStreamState(
+        msg.waitingForHost ? "Waiting for host stream" : "Connected to room",
+        msg.waitingForHost ? "Waiting" : "Connected",
+      );
+      setConnectButtonLabel("Reconnect");
       setHint(
         msg.waitingForHost
           ? "Connected. Waiting for the host to start streaming."
@@ -284,8 +631,15 @@ function connectSocket() {
       joinedViewer = false;
       manuallyClosed = true;
       setStatus("join-denied");
+      setStreamState("Access denied", "Denied");
+      setConnectButtonLabel("Retry join");
       setHint(describeJoinReason(msg.reason));
       log($log, "Join denied:", describeJoinReason(msg.reason));
+      showViewerToast(
+        "Join denied",
+        describeJoinReason(msg.reason),
+        "error",
+      );
       closeSocket({ manual: true });
       return;
     }
@@ -294,8 +648,15 @@ function connectSocket() {
       joinedViewer = false;
       manuallyClosed = true;
       setStatus("replaced");
+      setStreamState("Session replaced", "Replaced");
+      setConnectButtonLabel("Reconnect");
       setHint("Another viewer session replaced this tab.");
       log($log, "This viewer session was replaced.");
+      showViewerToast(
+        "Viewer replaced",
+        "Another tab or device took over this viewer session.",
+        "warn",
+      );
       resetPeer();
       closeSocket({ manual: true });
       return;
@@ -304,14 +665,27 @@ function connectSocket() {
     if (msg.type === "host-ready") {
       log($log, "Host ready. Waiting for offer...");
       setStatus("host-ready");
+      setStreamState("Host is ready", "Ready");
       setHint("Host is ready. Waiting for the video stream.");
+      showViewerToast(
+        "Host ready",
+        "The stream is preparing to go live.",
+        "info",
+      );
       return;
     }
 
     if (msg.type === "host-left") {
       log($log, "Host left.");
       setStatus("host-left");
+      setStreamState("Host disconnected", "Offline");
+      setConnectButtonLabel("Reconnect");
       setHint("Host disconnected. Waiting for them to reconnect.");
+      showViewerToast(
+        "Stream stopped",
+        "The host went offline or stopped the session.",
+        "warn",
+      );
       resetPeer();
       return;
     }
@@ -324,6 +698,7 @@ function connectSocket() {
       send({ type: "answer", sdp: pc.localDescription });
       log($log, "Answered offer.");
       setStatus("negotiating");
+      setStreamState("Negotiating WebRTC", "Negotiating");
       setHint("Negotiating the WebRTC connection.");
       return;
     }
@@ -345,11 +720,21 @@ function connectSocket() {
 
     if (msg.type === "timer-stop") {
       stopViewerTimer();
+      showViewerToast(
+        "Timer stopped",
+        "The host ended the session timer.",
+        "info",
+      );
       return;
     }
 
     if (msg.type === "timer-reset") {
       resetViewerTimer();
+      showViewerToast(
+        "Timer reset",
+        "The session timer was cleared by the host.",
+        "info",
+      );
     }
   };
 
@@ -359,19 +744,37 @@ function connectSocket() {
     resetPeer();
     if (joinedViewer && !manuallyClosed) {
       log($log, "Signaling connection closed unexpectedly.");
+      showViewerToast(
+        "Signal lost",
+        "Reconnecting to the host session.",
+        "warn",
+      );
       scheduleReconnect();
       return;
     }
     if (!manuallyClosed) {
       setStatus("ws-closed");
+      setStreamState("Socket closed", "Offline");
+      setConnectButtonLabel("Reconnect");
       setHint("Socket closed. Press Connect to try again.");
+      showViewerToast(
+        "Session offline",
+        "The signaling connection closed.",
+        "warn",
+      );
     }
   };
 
   activeSocket.onerror = () => {
     if (socket !== activeSocket) return;
     log($log, "WebSocket error.");
+    setStreamState("Socket error", "Warning");
     setHint("Socket error. Waiting for the connection state to settle.");
+    showViewerToast(
+      "Connection warning",
+      "The signaling channel reported an error.",
+      "error",
+    );
   };
 }
 
@@ -393,11 +796,26 @@ if ($connectBtn) {
   });
 }
 
+if ($fullscreenToggle) {
+  $fullscreenToggle.addEventListener("click", () => {
+    toggleViewerFullscreen();
+  });
+}
+
+document.addEventListener("fullscreenchange", syncFullscreenButton);
+
 window.addEventListener("beforeunload", () => {
   closeSocket({ manual: true });
   clearInterval(timerInterval);
+  clearStreamRecovery();
 });
+
+syncFullscreenButton();
 
 if (initialRoomKey) {
   connectSocket();
+} else {
+  setStreamState("Awaiting secure room key", "Standby");
+  setConnectButtonLabel("Connect");
+  syncEmptyState();
 }

@@ -12,6 +12,7 @@ const $sourceCount = document.getElementById("sourceCount");
 const $selectedSourceName = document.getElementById("selectedSourceName");
 const $selectedSourceBadge = document.getElementById("selectedSourceBadge");
 const $lanIpLabel = document.getElementById("lanIpLabel");
+const $reactionOverlay = document.getElementById("reactionOverlay");
 const $pick = document.getElementById("pick");
 const $start = document.getElementById("start");
 const $stop = document.getElementById("stop");
@@ -105,6 +106,81 @@ function addViewerMessage(viewerId, emoji) {
   }
 }
 
+function showHostToast({
+  icon = "•",
+  title = "Session update",
+  subtitle = "",
+  tone = "info",
+} = {}) {
+  if (!$reactionOverlay) return;
+
+  const toast = document.createElement("div");
+  toast.className = `reaction-toast reaction-toast--${tone}`;
+  toast.innerHTML = `
+    <span class="reaction-toast__emoji">${icon}</span>
+    <div class="reaction-toast__copy">
+      <strong>${title}</strong>
+      <span>${subtitle}</span>
+    </div>
+  `;
+
+  $reactionOverlay.prepend(toast);
+
+  const removeToast = () => {
+    if (toast.parentNode) {
+      toast.parentNode.removeChild(toast);
+    }
+  };
+
+  const exitTimer = setTimeout(() => {
+    toast.classList.add("reaction-toast--exit");
+  }, 2600);
+
+  const cleanupTimer = setTimeout(removeToast, 3200);
+
+  toast.addEventListener(
+    "animationend",
+    (event) => {
+      if (event.animationName === "reaction-toast-out") {
+        clearTimeout(exitTimer);
+        clearTimeout(cleanupTimer);
+        removeToast();
+      }
+    },
+    { once: true },
+  );
+
+  while ($reactionOverlay.childElementCount > 4) {
+    $reactionOverlay.removeChild($reactionOverlay.lastChild);
+  }
+}
+
+function showReactionOverlay(viewerId, emoji) {
+  showHostToast({
+    icon: emoji || "?",
+    title: `Viewer ${viewerId?.slice(0, 6) || "Unknown"}`,
+    subtitle: "sent a live reaction",
+    tone: "info",
+  });
+}
+
+function notifyViewerDisconnect(viewerId, subtitle, tone = "warn") {
+  const normalizedViewerId = viewerId || "unknown";
+  if (viewerDisconnectAlerts.has(normalizedViewerId)) return;
+  viewerDisconnectAlerts.add(normalizedViewerId);
+
+  showHostToast({
+    icon: tone === "warn" ? "⚠" : "ℹ",
+    title: `Viewer ${normalizedViewerId.slice(0, 6)} disconnected`,
+    subtitle,
+    tone,
+  });
+
+  setTimeout(() => {
+    viewerDisconnectAlerts.delete(normalizedViewerId);
+  }, 5000);
+}
+
 function describeJoinReason(reason) {
   if (reason === "room-key-required") return "Room key required";
   if (reason === "invalid-room-key") return "Invalid room key";
@@ -140,6 +216,7 @@ let canPickSources = false;
 
 const peers = new Map();
 const activeViewerIds = new Set();
+const viewerDisconnectAlerts = new Set();
 
 let timerInterval = null;
 let timerStartTime = null;
@@ -314,6 +391,16 @@ function ensurePeer(viewerId) {
   pc.onconnectionstatechange = () => {
     log(`[pc ${viewerId}] state=${pc.connectionState}`);
     if (["failed", "closed", "disconnected"].includes(pc.connectionState)) {
+      if (
+        screenStream &&
+        activeViewerIds.has(viewerId) &&
+        ["failed", "disconnected"].includes(pc.connectionState)
+      ) {
+        notifyViewerDisconnect(
+          viewerId,
+          "The live connection dropped before the viewer fully left the room.",
+        );
+      }
       try {
         pc.close();
       } catch {}
@@ -445,6 +532,7 @@ function stopAll() {
   }
   peers.clear();
   activeViewerIds.clear();
+  viewerDisconnectAlerts.clear();
   updateViewerCount();
 
   if ($stop) $stop.disabled = true;
@@ -530,6 +618,7 @@ function attachWsHandlers(socket) {
     if (msg.type === "viewer-joined") {
       log("Viewer joined:", msg.viewerId);
       activeViewerIds.add(msg.viewerId);
+      viewerDisconnectAlerts.delete(msg.viewerId);
       updateViewerCount();
       ensurePeer(msg.viewerId);
       setStatus(screenStream ? "streaming" : "waiting-viewers");
@@ -541,6 +630,10 @@ function attachWsHandlers(socket) {
 
     if (msg.type === "viewer-left") {
       log("Viewer left:", msg.viewerId);
+      notifyViewerDisconnect(
+        msg.viewerId,
+        "They left the room or their connection dropped.",
+      );
       activeViewerIds.delete(msg.viewerId);
       updateViewerCount();
       const pc = peers.get(msg.viewerId);
@@ -556,6 +649,7 @@ function attachWsHandlers(socket) {
     if (msg.type === "viewer-message") {
       log("Viewer message:", msg.viewerId, msg.emoji);
       addViewerMessage(msg.viewerId, msg.emoji);
+      showReactionOverlay(msg.viewerId, msg.emoji);
       return;
     }
 
