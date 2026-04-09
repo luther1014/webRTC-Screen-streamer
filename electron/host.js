@@ -40,6 +40,11 @@ function log(...args) {
   }
 }
 
+function notifyHostSystem(title, body) {
+  if (!window.electronAPI?.notifyHostSystem) return;
+  window.electronAPI.notifyHostSystem({ title, body });
+}
+
 function setStatus(text) {
   const normalized = String(text || "idle");
   if ($status) $status.textContent = normalized;
@@ -107,7 +112,7 @@ function addViewerMessage(viewerId, emoji) {
 }
 
 function showHostToast({
-  icon = "•",
+  icon = "\u2022",
   title = "Session update",
   subtitle = "",
   tone = "info",
@@ -156,12 +161,17 @@ function showHostToast({
 }
 
 function showReactionOverlay(viewerId, emoji) {
+  const shortViewerId = viewerId?.slice(0, 6) || "Unknown";
   showHostToast({
     icon: emoji || "?",
-    title: `Viewer ${viewerId?.slice(0, 6) || "Unknown"}`,
+    title: `Viewer ${shortViewerId}`,
     subtitle: "sent a live reaction",
     tone: "info",
   });
+  notifyHostSystem(
+    `Reaction from viewer ${shortViewerId}`,
+    `${emoji || "Reaction"} received in the live session.`,
+  );
 }
 
 function notifyViewerDisconnect(viewerId, subtitle, tone = "warn") {
@@ -170,11 +180,15 @@ function notifyViewerDisconnect(viewerId, subtitle, tone = "warn") {
   viewerDisconnectAlerts.add(normalizedViewerId);
 
   showHostToast({
-    icon: tone === "warn" ? "⚠" : "ℹ",
+    icon: tone === "warn" ? "\u26A0" : "\u2139",
     title: `Viewer ${normalizedViewerId.slice(0, 6)} disconnected`,
     subtitle,
     tone,
   });
+  notifyHostSystem(
+    `Viewer ${normalizedViewerId.slice(0, 6)} disconnected`,
+    subtitle,
+  );
 
   setTimeout(() => {
     viewerDisconnectAlerts.delete(normalizedViewerId);

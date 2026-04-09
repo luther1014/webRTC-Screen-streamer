@@ -1,7 +1,13 @@
 const os = require("os");
 const path = require("path");
 const { fork } = require("child_process");
-const { app, BrowserWindow, ipcMain, desktopCapturer } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  desktopCapturer,
+  Notification,
+} = require("electron");
 
 let win;
 let serverProcess = null;
@@ -84,4 +90,27 @@ ipcMain.handle("screen:getSources", async () => {
 
 ipcMain.handle("network:getLanIps", async () => {
   return getLanIps();
+});
+
+ipcMain.on("host:systemNotification", (_event, payload = {}) => {
+  if (!Notification.isSupported() || !win || win.isDestroyed()) return;
+  if (win.isFocused()) return;
+
+  const title = String(payload.title || "Screen Stream Host");
+  const body = String(payload.body || "");
+
+  const notification = new Notification({
+    title,
+    body,
+    silent: false,
+  });
+
+  notification.on("click", () => {
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  });
+
+  notification.show();
 });
