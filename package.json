@@ -7,7 +7,7 @@
     "dev": "node server.js",
     "host": "electron .",
     "start": "concurrently -k \"node server.js\" \"electron .\"",
-    "dist": "electron-builder"
+    "build": "electron-builder"
   },
   "dependencies": {
     "express": "^4.19.2",
@@ -16,7 +16,8 @@
   },
   "devDependencies": {
     "concurrently": "^9.0.0",
-    "electron": "^30.0.0"
+    "electron": "^30.0.0",
+    "electron-builder": "^26.8.1"
   },
   "build": {
     "appId": "com.yourname.webrtcscreen",
@@ -27,8 +28,7 @@
     "files": [
       "electron/**/*",
       "public/**/*",
-      "server/**/*",
-      "node_modules/**/*",
+      "server.js",
       "package.json"
     ],
     "win": {

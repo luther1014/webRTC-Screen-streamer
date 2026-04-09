@@ -6,6 +6,14 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Electron Screen Host</title>
     <link rel="stylesheet" href="../public/styles.css" />
+    <meta http-equiv="Content-Security-Policy" content="
+          default-src 'self';
+          script-src 'self';
+          style-src 'self' 'unsafe-inline';
+          img-src 'self' data: blob:;
+          media-src 'self' blob:;
+          connect-src 'self' ws://localhost:8080 http://localhost:8080 ws: http:;
+        ">
 </head>
 
 <body>
@@ -25,31 +33,36 @@
     </div>
 
     <div class="row">
-        Viewer link example:
+        <button id="timerStart" disabled>Start Timer</button>
+        <button id="timerStop" disabled>Stop Timer</button>
+        <button id="timerReset" disabled>Reset Timer</button>
+        <span>Timer: <code id="timerDisplay">00:00:00</code></span>
+    </div>
+
+    <div class="row">
+        <label>Set time (minutes): <input id="timerLimit" type="number" min="0" step="0.5" value="0" style="width:90px;" /></label>
+    </div>
+
+    <div class="row">
+        Viewer link:
         <code id="viewerLink">http://LAN-IP:8080/view?room=demo</code>
     </div>
 
-    <!-- <h3>Scan to open viewer</h3>
     <div class="row" style="align-items:flex-start;">
-        <div>
-            <canvas id="qr" style="border-radius:12px; border:1px solid #ddd;"></canvas>
-            <div style="margin-top:8px;">
-                <button id="copyLink">Copy viewer link</button>
+        <div style="min-width:280px;">
+            <h3>QR code</h3>
+            <img id="qrImage" alt="Viewer QR Code"
+                style="width:240px;height:240px;border:1px solid #ddd;border-radius:12px;background:#fff;" />
+            <div style="margin-top:10px;">
+                <small id="qrHint">Scan to open viewer page</small>
             </div>
         </div>
 
-        <div style="max-width:520px;">
-            <div><strong>Viewer URL</strong></div>
-            <code id="viewerUrlFull"></code>
-            <div style="margin-top:8px;">
-                <small>Tip: use the LAN IP shown by your server (e.g. 192.168.x.x). Phones must be on the same
-                    Wi-Fi.</small>
-            </div>
+        <div style="flex:1;">
+            <h3>Selected source preview</h3>
+            <video id="preview" autoplay playsinline muted></video>
         </div>
-    </div> -->
-
-    <h3>Selected source preview</h3>
-    <video id="preview" autoplay playsinline muted></video>
+    </div>
 
     <h3>Sources</h3>
     <div id="sources" style="display:flex; gap:12px; flex-wrap:wrap;"></div>

@@ -6,16 +6,71 @@ const viewerId = qs("id") || randomId();
 const $room = document.getElementById("room");
 const $status = document.getElementById("status");
 const $video = document.getElementById("video");
+const $timerOverlay = document.getElementById("timerOverlay");
+const $timerText = document.getElementById("timerText");
 const $log = document.getElementById("log");
 
 $room.textContent = roomId;
 
 let pc = null;
+let timerInterval = null;
+let timerStartTime = null;
+let timerLimitSeconds = 0;
 const socket = new WebSocket(wsUrl());
 
 const rtcConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
+
+function formatTime(seconds) {
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+function updateTimerDisplay() {
+  if (!timerStartTime) return;
+  const elapsed = Math.max(0, Math.floor((Date.now() - timerStartTime) / 1000));
+  $timerText.textContent = formatTime(elapsed);
+  if (timerLimitSeconds > 0 && elapsed >= timerLimitSeconds) {
+    $timerOverlay.style.background = 'rgba(255,200,200,0.9)';
+    $timerOverlay.style.color = '#000';
+  } else {
+    $timerOverlay.style.background = 'rgba(0,0,0,0.7)';
+    $timerOverlay.style.color = '#fff';
+  }
+}
+
+function startViewerTimer(startTime, limitSeconds = 0) {
+  timerStartTime = startTime;
+  timerLimitSeconds = Number.isFinite(limitSeconds) ? limitSeconds : 0;
+  $timerOverlay.style.display = 'block';
+  updateTimerDisplay();
+  clearInterval(timerInterval);
+  timerInterval = setInterval(updateTimerDisplay, 1000);
+}
+
+function stopViewerTimer() {
+  timerStartTime = null;
+  timerLimitSeconds = 0;
+  clearInterval(timerInterval);
+  timerInterval = null;
+  $timerOverlay.style.display = 'none';
+  $timerOverlay.style.background = 'rgba(0,0,0,0.7)';
+  $timerOverlay.style.color = '#fff';
+}
+
+function resetViewerTimer() {
+  timerStartTime = null;
+  timerLimitSeconds = 0;
+  clearInterval(timerInterval);
+  timerInterval = null;
+  $timerOverlay.style.display = 'none';
+  $timerText.textContent = '00:00:00';
+  $timerOverlay.style.background = 'rgba(0,0,0,0.7)';
+  $timerOverlay.style.color = '#fff';
+}
 
 function setStatus(s) {
   $status.textContent = s;
@@ -90,5 +145,17 @@ socket.onmessage = async (ev) => {
     } catch (e) {
       log($log, "ICE add failed:", String(e));
     }
+  }
+
+  if (msg.type === "timer-start") {
+    startViewerTimer(msg.startTime, msg.limitSeconds);
+  }
+
+  if (msg.type === "timer-stop") {
+    stopViewerTimer();
+  }
+
+  if (msg.type === "timer-reset") {
+    resetViewerTimer();
   }
 };

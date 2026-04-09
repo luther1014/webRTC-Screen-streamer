@@ -1,13 +1,46 @@
+const os = require("os");
 const path = require("path");
+const { fork } = require("child_process");
 const { app, BrowserWindow, ipcMain, desktopCapturer } = require("electron");
-const { createServer } = require("../server/appServer");
 
 let win;
+let serverProcess = null;
+
+function getLanIps() {
+  const nets = os.networkInterfaces();
+  const ips = [];
+
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      if (net.family === "IPv4" && !net.internal) {
+        ips.push(net.address);
+      }
+    }
+  }
+
+  return ips;
+}
+
+function startInternalServer() {
+  const serverPath = path.join(__dirname, "..", "server.js");
+
+  serverProcess = fork(serverPath, [], {
+    stdio: "inherit",
+  });
+
+  serverProcess.on("error", (err) => {
+    console.error("Failed to start internal server:", err);
+  });
+
+  serverProcess.on("exit", (code) => {
+    console.log("Internal server exited with code:", code);
+  });
+}
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1000,
-    height: 720,
+    width: 1100,
+    height: 820,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -19,40 +52,22 @@ function createWindow() {
   win.loadFile(path.join(__dirname, "host.html"));
 }
 
-let serverInfo;
-
-// app.whenReady().then(() => {
-//   createWindow();
-//   app.on("activate", () => {
-//     if (BrowserWindow.getAllWindows().length === 0) createWindow();
-//   });
-// });
-
-app.whenReady().then(async () => {
-  // IMPORTANT: when packaged, your files are inside app.asar.
-  // We will copy public assets out (next step) OR point to resources.
-  const publicDir = path.join(__dirname, "..", "public");
-
-  serverInfo = await createServer({ port: 8080, publicDir });
-  console.log("Viewer URLs:");
-  for (const ip of serverInfo.ips) {
-    console.log(`  http://${ip}:${serverInfo.port}/view?room=demo`);
-  }
-
+app.whenReady().then(() => {
+  startInternalServer();
   createWindow();
 });
 
 app.on("before-quit", () => {
-  try {
-    serverInfo?.server?.close();
-  } catch {}
+  if (serverProcess) {
+    serverProcess.kill();
+    serverProcess = null;
+  }
 });
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// IPC: list capture sources
 ipcMain.handle("screen:getSources", async () => {
   const sources = await desktopCapturer.getSources({
     types: ["screen", "window"],
@@ -63,7 +78,10 @@ ipcMain.handle("screen:getSources", async () => {
   return sources.map((s) => ({
     id: s.id,
     name: s.name,
-    // data URL thumbnail for UI
     thumbnail: s.thumbnail?.toDataURL?.() || null,
   }));
+});
+
+ipcMain.handle("network:getLanIps", async () => {
+  return getLanIps();
 });

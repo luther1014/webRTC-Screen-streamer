@@ -16,7 +16,12 @@
         <div>Status: <code id="status">connecting</code></div>
     </div>
 
-    <video id="video" autoplay playsinline controls></video>
+    <div class="video-wrapper">
+        <video id="video" autoplay playsinline controls></video>
+        <div id="timerOverlay" class="timer-overlay" style="display:none;">
+            <span id="timerText">00:00:00</span>
+        </div>
+    </div>
 
     <h3>Log</h3>
     <pre id="log"></pre>

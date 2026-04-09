@@ -111,6 +111,13 @@ wss.on("connection", (ws) => {
         if (room.host) send(room.host, msg);
       }
     }
+
+    // broadcast timer messages from host to all viewers
+    if (msg.type === "timer-start" || msg.type === "timer-stop" || msg.type === "timer-reset") {
+      if (room.host === ws) {
+        broadcastViewers(msg.roomId, msg);
+      }
+    }
   });
 
   ws.on("close", () => cleanup(ws));
