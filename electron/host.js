@@ -533,6 +533,8 @@ let lastHeartbeatSentAt = null;
 let renameModalViewerId = "";
 
 const HEARTBEAT_INTERVAL_MS = 5000;
+const VIDEO_SENDER_MAX_BITRATE = 2_500_000;
+const VIDEO_SENDER_MAX_FRAMERATE = 30;
 
 const rtcConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -762,8 +764,51 @@ function ensurePeer(viewerId) {
   return pc;
 }
 
+async function tuneVideoSender(sender, viewerId) {
+  if (
+    !sender?.track ||
+    sender.track.kind !== "video" ||
+    typeof sender.getParameters !== "function" ||
+    typeof sender.setParameters !== "function"
+  ) {
+    return;
+  }
+
+  try {
+    const parameters = sender.getParameters() || {};
+    const encodings =
+      parameters.encodings && parameters.encodings.length
+        ? parameters.encodings
+        : [{}];
+
+    parameters.encodings = encodings.map((encoding) => ({
+      ...encoding,
+      maxBitrate: VIDEO_SENDER_MAX_BITRATE,
+      maxFramerate: VIDEO_SENDER_MAX_FRAMERATE,
+      priority: "high",
+      networkPriority: "high",
+    }));
+    parameters.degradationPreference = "maintain-framerate";
+
+    await sender.setParameters(parameters);
+  } catch (error) {
+    log(
+      `Video sender tuning failed for ${viewerId}:`,
+      error?.message || String(error),
+    );
+  }
+}
+
+async function tunePeerSenders(pc, viewerId) {
+  const tuningJobs = pc
+    .getSenders()
+    .map((sender) => tuneVideoSender(sender, viewerId));
+  await Promise.all(tuningJobs);
+}
+
 async function makeOffer(viewerId) {
   const pc = ensurePeer(viewerId);
+  await tunePeerSenders(pc, viewerId);
 
   const offer = await pc.createOffer({
     offerToReceiveVideo: true,
@@ -832,7 +877,7 @@ async function captureSelectedSource() {
       mandatory: {
         chromeMediaSource: "desktop",
         chromeMediaSourceId: selectedSourceId,
-        maxFrameRate: 60,
+        maxFrameRate: 30,
       },
     },
   });
