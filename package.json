@@ -28,6 +28,7 @@
     "files": [
       "electron/**/*",
       "public/**/*",
+      "server/**/*",
       "server.js",
       "package.json"
     ],

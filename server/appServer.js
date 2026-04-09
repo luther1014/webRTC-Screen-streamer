@@ -19,7 +19,6 @@ function createServer({ port = 8080, publicDir }) {
   const app = express();
   app.use(express.static(publicDir));
 
-  // nice alias
   app.get("/view", (req, res) => {
     res.sendFile(path.join(publicDir, "viewer.html"));
   });
@@ -27,41 +26,147 @@ function createServer({ port = 8080, publicDir }) {
   const server = http.createServer(app);
   const wss = new WebSocket.Server({ server });
 
-  // --- signaling state ---
   const rooms = new Map();
-  const getRoom = (id) => {
-    if (!rooms.has(id)) rooms.set(id, { host: null, viewers: new Map() });
-    return rooms.get(id);
-  };
-  const send = (ws, obj) =>
-    ws?.readyState === 1 && ws.send(JSON.stringify(obj));
-  const broadcastViewers = (roomId, obj) => {
+
+  function normalizeRoomKey(value) {
+    return String(value || "").trim();
+  }
+
+  function getRoom(roomId) {
+    if (!rooms.has(roomId)) {
+      rooms.set(roomId, {
+        host: null,
+        key: null,
+        viewers: new Map(),
+      });
+    }
+    return rooms.get(roomId);
+  }
+
+  function send(ws, obj) {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(obj));
+    }
+  }
+
+  function closeSocket(ws, code, reason) {
+    if (
+      ws &&
+      (ws.readyState === WebSocket.OPEN ||
+        ws.readyState === WebSocket.CONNECTING)
+    ) {
+      ws.close(code, reason);
+    }
+  }
+
+  function broadcastViewers(roomId, obj) {
     const room = rooms.get(roomId);
     if (!room) return;
-    for (const [, vws] of room.viewers) send(vws, obj);
-  };
-  const safeParse = (s) => {
+    for (const [, viewer] of room.viewers) {
+      send(viewer.ws, obj);
+    }
+  }
+
+  function safeParse(raw) {
     try {
-      return JSON.parse(s);
+      return JSON.parse(raw);
     } catch {
       return null;
     }
-  };
-  const cleanup = (ws) => {
+  }
+
+  function denyJoin(ws, reason) {
+    send(ws, { type: "join-denied", reason });
+  }
+
+  function cleanup(ws) {
     for (const [roomId, room] of rooms.entries()) {
       if (room.host === ws) {
         room.host = null;
         broadcastViewers(roomId, { type: "host-left" });
       }
-      for (const [viewerId, vws] of room.viewers.entries()) {
-        if (vws === ws) {
+
+      for (const [viewerId, viewer] of room.viewers.entries()) {
+        if (viewer.ws === ws) {
           room.viewers.delete(viewerId);
           if (room.host) send(room.host, { type: "viewer-left", viewerId });
         }
       }
-      if (!room.host && room.viewers.size === 0) rooms.delete(roomId);
+
+      if (!room.host && room.viewers.size === 0) {
+        rooms.delete(roomId);
+      }
     }
-  };
+  }
+
+  function handleHostJoin(ws, roomId, room, msg) {
+    const roomKey = normalizeRoomKey(msg.roomKey);
+    if (!roomKey) {
+      denyJoin(ws, "room-key-required");
+      return;
+    }
+
+    if (room.key && room.key !== roomKey) {
+      denyJoin(ws, "invalid-room-key");
+      return;
+    }
+
+    const previousHost = room.host;
+    room.host = ws;
+    room.key = roomKey;
+    send(ws, { type: "joined", role: "host" });
+
+    if (previousHost && previousHost !== ws) {
+      send(previousHost, { type: "replaced" });
+      closeSocket(previousHost, 4000, "Host replaced");
+    }
+
+    for (const [viewerId, viewer] of room.viewers.entries()) {
+      if (viewer.roomKey !== room.key) {
+        room.viewers.delete(viewerId);
+        send(viewer.ws, { type: "join-denied", reason: "invalid-room-key" });
+        closeSocket(viewer.ws, 4003, "Invalid room key");
+        continue;
+      }
+
+      send(ws, { type: "viewer-joined", viewerId });
+    }
+
+    broadcastViewers(roomId, { type: "host-ready" });
+  }
+
+  function handleViewerJoin(ws, room, msg) {
+    const viewerId = String(msg.viewerId || "").trim();
+    const roomKey = normalizeRoomKey(msg.roomKey);
+    if (!viewerId) {
+      denyJoin(ws, "viewer-id-required");
+      return;
+    }
+
+    if (room.key && room.key !== roomKey) {
+      denyJoin(ws, "invalid-room-key");
+      return;
+    }
+
+    const existingViewer = room.viewers.get(viewerId);
+    if (existingViewer && existingViewer.ws !== ws) {
+      send(existingViewer.ws, { type: "replaced" });
+      closeSocket(existingViewer.ws, 4001, "Viewer replaced");
+    }
+
+    room.viewers.set(viewerId, { ws, roomKey });
+    send(ws, {
+      type: "joined",
+      role: "viewer",
+      viewerId,
+      waitingForHost: !room.host,
+    });
+
+    if (room.host) {
+      send(ws, { type: "host-ready" });
+      send(room.host, { type: "viewer-joined", viewerId });
+    }
+  }
 
   wss.on("connection", (ws) => {
     ws.on("message", (raw) => {
@@ -72,34 +177,45 @@ function createServer({ port = 8080, publicDir }) {
 
       if (msg.type === "join") {
         if (msg.role === "host") {
-          room.host = ws;
-          send(ws, { type: "joined", role: "host" });
-          for (const [viewerId] of room.viewers)
-            send(ws, { type: "viewer-joined", viewerId });
-          broadcastViewers(msg.roomId, { type: "host-ready" });
+          handleHostJoin(ws, msg.roomId, room, msg);
         }
+
         if (msg.role === "viewer") {
-          const viewerId = msg.viewerId;
-          if (!viewerId) return;
-          room.viewers.set(viewerId, ws);
-          send(ws, { type: "joined", role: "viewer", viewerId });
-          if (room.host) {
-            send(ws, { type: "host-ready" });
-            send(room.host, { type: "viewer-joined", viewerId });
-          }
+          handleViewerJoin(ws, room, msg);
         }
+
         return;
       }
 
       if (["offer", "answer", "ice"].includes(msg.type)) {
-        const viewerId = msg.viewerId;
+        const viewerId = String(msg.viewerId || "").trim();
         if (!viewerId) return;
 
         if (room.host === ws) {
-          const vws = room.viewers.get(viewerId);
-          if (vws) send(vws, msg);
-        } else {
-          if (room.host) send(room.host, msg);
+          const viewer = room.viewers.get(viewerId);
+          if (viewer) send(viewer.ws, msg);
+        } else if (room.host) {
+          send(room.host, msg);
+        }
+        return;
+      }
+
+      if (msg.type === "viewer-message") {
+        const viewerId = String(msg.viewerId || "").trim();
+        const viewer = room.viewers.get(viewerId);
+        if (viewer?.ws === ws && room.host) {
+          send(room.host, msg);
+        }
+        return;
+      }
+
+      if (
+        msg.type === "timer-start" ||
+        msg.type === "timer-stop" ||
+        msg.type === "timer-reset"
+      ) {
+        if (room.host === ws) {
+          broadcastViewers(msg.roomId, msg);
         }
       }
     });

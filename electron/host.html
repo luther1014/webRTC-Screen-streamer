@@ -16,66 +16,197 @@
         ">
 </head>
 
-<body>
-    <h2>Electron Host (captures screen) → Browser viewers</h2>
-
-    <div class="row">
-        <label>Room: <input id="room" value="demo" /></label>
-        <label>Server: <input id="server" value="ws://localhost:8080" size="26" /></label>
-        <button id="connect">Connect</button>
-        <span>Status: <code id="status">idle</code></span>
-    </div>
-
-    <div class="row">
-        <button id="pick" disabled>Pick screen/window</button>
-        <button id="start" disabled>Start streaming</button>
-        <button id="stop" disabled>Stop</button>
-    </div>
-
-    <div class="row">
-        <button id="timerStart" disabled>Start Timer</button>
-        <button id="timerStop" disabled>Stop Timer</button>
-        <button id="timerReset" disabled>Reset Timer</button>
-        <span>Timer: <code id="timerDisplay">00:00:00</code></span>
-    </div>
-
-    <div class="row">
-        <label>Set time (minutes): <input id="timerLimit" type="number" min="0" step="0.5" value="0" style="width:90px;" /></label>
-    </div>
-
-    <div class="row">
-        <div style="flex:1; min-width:280px;">
-            <h3>Viewer chat</h3>
-            <div id="messagePanel" class="chat-panel"></div>
-        </div>
-    </div>
-
-    <div class="row">
-        Viewer link:
-        <code id="viewerLink">http://LAN-IP:8080/view?room=demo</code>
-    </div>
-
-    <div class="row" style="align-items:flex-start;">
-        <div style="min-width:280px;">
-            <h3>QR code</h3>
-            <img id="qrImage" alt="Viewer QR Code"
-                style="width:240px;height:240px;border:1px solid #ddd;border-radius:12px;background:#fff;" />
-            <div style="margin-top:10px;">
-                <small id="qrHint">Scan to open viewer page</small>
+<body class="host-dashboard">
+    <div class="host-shell">
+        <header class="ops-header">
+            <div class="ops-header__intro">
+                <span class="eyebrow">Mission Control</span>
+                <h1>Screen Stream Host Panel</h1>
+                <p class="subtitle">Manage capture, publish the viewer entry point, and monitor session signals from one
+                    control surface.</p>
             </div>
-        </div>
+            <div class="ops-header__status">
+                <div class="status-block">
+                    <span class="status-block__label">Host state</span>
+                    <div class="status-block__value">
+                        <span id="statusChip" class="status-chip status-idle">Idle</span>
+                        <code id="status">idle</code>
+                    </div>
+                </div>
+                <div class="signal-pill-grid">
+                    <div class="signal-pill">
+                        <span class="signal-pill__label">Room</span>
+                        <strong id="roomMirror">demo</strong>
+                    </div>
+                    <div class="signal-pill">
+                        <span class="signal-pill__label">Key</span>
+                        <strong id="roomKeyMirror">------</strong>
+                    </div>
+                    <div class="signal-pill">
+                        <span class="signal-pill__label">LAN</span>
+                        <strong id="lanIpLabel">Detecting...</strong>
+                    </div>
+                </div>
+            </div>
+        </header>
 
-        <div style="flex:1;">
-            <h3>Selected source preview</h3>
-            <video id="preview" autoplay playsinline muted></video>
-        </div>
+        <section class="telemetry-strip">
+            <article class="telemetry-card">
+                <span class="telemetry-card__label">Session readiness</span>
+                <strong id="hostStateLabel">Idle</strong>
+            </article>
+            <article class="telemetry-card">
+                <span class="telemetry-card__label">Audience</span>
+                <strong id="viewerCount">0 viewers</strong>
+            </article>
+            <article class="telemetry-card">
+                <span class="telemetry-card__label">Capture deck</span>
+                <strong id="sourceCount">0 sources</strong>
+                <p id="selectedSourceName">No source selected yet.</p>
+            </article>
+        </section>
+
+        <main class="ops-grid">
+            <section class="card ops-card ops-panel ops-panel--controls">
+                <div class="card-title">Session Controls</div>
+                <div class="card-body">
+                    <div class="control-cluster">
+                        <div class="section-head">
+                            <h2>Signal Path</h2>
+                            <p>Configure the room before broadcasting it to viewers.</p>
+                        </div>
+                        <div class="card-form-grid control-form-grid">
+                            <label>
+                                <span>Room</span>
+                                <input id="room" value="demo" size="20" />
+                            </label>
+                            <label>
+                                <span>Room key</span>
+                                <input id="roomKey" value="" size="20" maxlength="12" autocomplete="off" />
+                            </label>
+                            <label class="control-form-grid__wide">
+                                <span>Signal server</span>
+                                <input id="server" value="ws://localhost:8080" size="26" />
+                            </label>
+                        </div>
+                        <div class="action-row action-row--stacked">
+                            <button id="connect" class="primary-btn">Connect to room</button>
+                            <button id="pick" disabled>Pick screen/window</button>
+                            <button id="start" disabled>Start streaming</button>
+                            <button id="stop" disabled>Stop stream</button>
+                        </div>
+                        <p class="support-copy">Keep the room key private. It is embedded in the viewer link and QR code
+                            for quick join access.</p>
+                    </div>
+
+                </div>
+            </section>
+
+            <section class="card ops-card ops-panel ops-panel--stage">
+                <div class="card-title">Broadcast Access</div>
+                <div class="card-body">
+                    <div class="broadcast-layout">
+                        <div class="broadcast-main">
+                            <div class="section-head">
+                                <h2>Viewer entry point</h2>
+                                <p>Share the room link or let nearby users scan the QR code.</p>
+                            </div>
+                            <div class="link-card broadcast-link-card">
+                                <span class="link-label">Viewer link</span>
+                                <code id="viewerLink">http://LAN-IP:8080/view?room=demo</code>
+                            </div>
+                            <div class="preview-stage">
+                                <div class="preview-stage__head">
+                                    <div>
+                                        <span class="eyebrow">Live Preview</span>
+                                        <h2>Selected source preview</h2>
+                                    </div>
+                                    <span class="preview-stage__tag" id="selectedSourceBadge">No source selected</span>
+                                </div>
+                                <div class="preview-shell">
+                                    <video id="preview" autoplay playsinline muted></video>
+                                </div>
+                            </div>
+                        </div>
+
+                        <aside class="broadcast-side">
+                            <div class="qr-panel">
+                                <div class="section-head">
+                                    <h2>Join QR</h2>
+                                    <p id="qrHint">Scan to open viewer page</p>
+                                </div>
+                                <div class="qr-frame">
+                                    <img id="qrImage" alt="Viewer QR Code" class="qr-image" />
+                                </div>
+                            </div>
+                            <div class="ops-note">
+                                <span class="eyebrow">Operator note</span>
+                                <p>Pick a source before starting the stream so the audience joins into a live feed, not
+                                    an empty room.</p>
+                            </div>
+                        </aside>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card ops-card ops-panel ops-panel--messages">
+                <div class="card-title">Viewer Signals</div>
+                <div class="card-body">
+                    <div class="section-head">
+                        <h2>Reactions</h2>
+                        <p>Incoming emoji and feedback appear here in reverse-chronological order.</p>
+                    </div>
+                    <div id="messagePanel" class="chat-panel"></div>
+                </div>
+            </section>
+
+            <section class="card ops-card ops-panel ops-panel--timer">
+                <div class="card-title">Timer Overlay</div>
+                <div class="card-body">
+                    <div class="section-head">
+                        <h2>Shared session timer</h2>
+                        <p>Launch a synchronized timer that appears across all viewer sessions.</p>
+                    </div>
+                    <div class="timer-panel">
+                        <div class="timer-panel__display">
+                            <span class="metric-label">Elapsed</span>
+                            <code id="timerDisplay">00:00:00</code>
+                        </div>
+                        <div class="action-row action-row--timer">
+                            <button id="timerStart" disabled>Start</button>
+                            <button id="timerStop" disabled>Stop</button>
+                            <button id="timerReset" disabled>Reset</button>
+                        </div>
+                        <label class="input-label">Limit (minutes)
+                            <input id="timerLimit" type="number" min="0" step="0.5" value="0" />
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card ops-card card-full ops-panel--sources">
+                <div class="card-title">Capture Deck</div>
+                <div class="card-body">
+                    <div class="section-head">
+                        <h2>Available sources</h2>
+                        <p>Click any source to arm it for the next stream start or source switch.</p>
+                    </div>
+                    <div id="sources" class="sources-grid"></div>
+                </div>
+            </section>
+
+            <section class="card ops-card card-full ops-panel--log">
+                <div class="card-title">Operations Log</div>
+                <div class="card-body">
+                    <div class="section-head">
+                        <h2>Host telemetry</h2>
+                        <p>Connection transitions, QR refreshes, and WebRTC events are recorded here.</p>
+                    </div>
+                    <pre id="log"></pre>
+                </div>
+            </section>
+        </main>
     </div>
-
-    <h3>Sources</h3>
-    <div id="sources" style="display:flex; gap:12px; flex-wrap:wrap;"></div>
-
-    <h3>Log</h3>
-    <pre id="log"></pre>
 
     <script src="./host.js"></script>
 </body>

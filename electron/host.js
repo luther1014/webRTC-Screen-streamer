@@ -1,7 +1,17 @@
 const $room = document.getElementById("room");
+const $roomKey = document.getElementById("roomKey");
 const $server = document.getElementById("server");
 const $connect = document.getElementById("connect");
 const $status = document.getElementById("status");
+const $statusChip = document.getElementById("statusChip");
+const $hostStateLabel = document.getElementById("hostStateLabel");
+const $roomMirror = document.getElementById("roomMirror");
+const $roomKeyMirror = document.getElementById("roomKeyMirror");
+const $viewerCount = document.getElementById("viewerCount");
+const $sourceCount = document.getElementById("sourceCount");
+const $selectedSourceName = document.getElementById("selectedSourceName");
+const $selectedSourceBadge = document.getElementById("selectedSourceBadge");
+const $lanIpLabel = document.getElementById("lanIpLabel");
 const $pick = document.getElementById("pick");
 const $start = document.getElementById("start");
 const $stop = document.getElementById("stop");
@@ -30,7 +40,57 @@ function log(...args) {
 }
 
 function setStatus(text) {
-  if ($status) $status.textContent = text;
+  const normalized = String(text || "idle");
+  if ($status) $status.textContent = normalized;
+  if ($hostStateLabel) {
+    $hostStateLabel.textContent = normalized.replace(/-/g, " ");
+  }
+
+  if ($statusChip) {
+    const label = normalized.replace(/-/g, " ");
+    $statusChip.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+    $statusChip.classList.remove("status-idle", "status-good", "status-warn");
+
+    if (["connected", "streaming", "waiting-viewers"].includes(normalized)) {
+      $statusChip.classList.add("status-good");
+    } else if (
+      ["replaced", "join-denied", "ws-closed", "capture-failed"].includes(
+        normalized,
+      )
+    ) {
+      $statusChip.classList.add("status-warn");
+    } else {
+      $statusChip.classList.add("status-idle");
+    }
+  }
+}
+
+function updateSessionMirrors() {
+  if ($roomMirror) {
+    $roomMirror.textContent = getRoomId();
+  }
+  if ($roomKeyMirror) {
+    const key = getRoomKey();
+    $roomKeyMirror.textContent = key || "------";
+  }
+}
+
+function updateViewerCount() {
+  if ($viewerCount) {
+    const count = activeViewerIds.size;
+    $viewerCount.textContent = `${count} viewer${count === 1 ? "" : "s"}`;
+  }
+}
+
+function updateSelectedSourceUI() {
+  const label = selectedSourceName || "No source selected yet.";
+  if ($selectedSourceName) {
+    $selectedSourceName.textContent = label;
+  }
+  if ($selectedSourceBadge) {
+    $selectedSourceBadge.textContent =
+      selectedSourceName || "No source selected";
+  }
 }
 
 function addViewerMessage(viewerId, emoji) {
@@ -45,12 +105,41 @@ function addViewerMessage(viewerId, emoji) {
   }
 }
 
+function describeJoinReason(reason) {
+  if (reason === "room-key-required") return "Room key required";
+  if (reason === "invalid-room-key") return "Invalid room key";
+  if (reason === "viewer-id-required") return "Viewer id required";
+  return reason || "join-denied";
+}
+
+function randomRoomKey() {
+  return Math.random().toString(36).slice(2, 8).toUpperCase();
+}
+
+function getRoomId() {
+  return ($room?.value || "demo").trim() || "demo";
+}
+
+function normalizeRoomKeyInput() {
+  if (!$roomKey) return "";
+  $roomKey.value = $roomKey.value.toUpperCase().replace(/[^A-Z0-9-]/g, "");
+  return $roomKey.value;
+}
+
+function getRoomKey() {
+  return normalizeRoomKeyInput().trim();
+}
+
 let ws = null;
 let screenStream = null;
 let selectedSourceId = null;
+let selectedSourceName = "";
 let currentLanIp = null;
+let joinedAsHost = false;
+let canPickSources = false;
 
-const peers = new Map(); // viewerId -> RTCPeerConnection
+const peers = new Map();
+const activeViewerIds = new Set();
 
 let timerInterval = null;
 let timerStartTime = null;
@@ -60,12 +149,24 @@ const rtcConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
+function setHostControlsEnabled(enabled) {
+  if ($start) $start.disabled = !enabled;
+  if ($stop) $stop.disabled = true;
+  if ($timerStart) $timerStart.disabled = !enabled;
+  if ($timerStop) $timerStop.disabled = true;
+  if ($timerReset) $timerReset.disabled = !enabled;
+}
+
+function syncPickButton() {
+  if ($pick) $pick.disabled = !canPickSources;
+}
+
 function send(msg) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(
     JSON.stringify({
       ...msg,
-      roomId: ($room?.value || "demo").trim(),
+      roomId: getRoomId(),
     }),
   );
 }
@@ -74,7 +175,7 @@ function formatTime(seconds) {
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
-  return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
 function getTimerLimitSeconds() {
@@ -86,7 +187,10 @@ function getTimerLimitSeconds() {
 
 function updateTimerDisplay() {
   if (timerRunning && timerStartTime) {
-    const elapsed = Math.max(0, Math.floor((Date.now() - timerStartTime) / 1000));
+    const elapsed = Math.max(
+      0,
+      Math.floor((Date.now() - timerStartTime) / 1000),
+    );
     $timerDisplay.textContent = formatTime(elapsed);
   }
 }
@@ -96,7 +200,11 @@ function startTimer() {
   timerRunning = true;
   timerStartTime = Date.now();
   timerInterval = setInterval(updateTimerDisplay, 1000);
-  send({ type: "timer-start", startTime: timerStartTime, limitSeconds: getTimerLimitSeconds() });
+  send({
+    type: "timer-start",
+    startTime: timerStartTime,
+    limitSeconds: getTimerLimitSeconds(),
+  });
   $timerStart.disabled = true;
   $timerStop.disabled = false;
   if ($timerReset) $timerReset.disabled = false;
@@ -109,9 +217,11 @@ function stopTimer() {
   clearInterval(timerInterval);
   timerInterval = null;
   send({ type: "timer-stop" });
-  $timerStart.disabled = false;
-  $timerStop.disabled = true;
-  if ($timerReset) $timerReset.disabled = false;
+  if (joinedAsHost) {
+    $timerStart.disabled = false;
+    $timerStop.disabled = true;
+    if ($timerReset) $timerReset.disabled = false;
+  }
   log("Timer stopped");
 }
 
@@ -122,16 +232,19 @@ function resetTimer() {
   timerInterval = null;
   if ($timerDisplay) $timerDisplay.textContent = "00:00:00";
   send({ type: "timer-reset" });
-  if ($timerStart) $timerStart.disabled = false;
-  if ($timerStop) $timerStop.disabled = true;
-  if ($timerReset) $timerReset.disabled = false;
+  if (joinedAsHost) {
+    if ($timerStart) $timerStart.disabled = false;
+    if ($timerStop) $timerStop.disabled = true;
+    if ($timerReset) $timerReset.disabled = false;
+  }
   log("Timer reset");
 }
 
 function buildViewerUrl() {
-  const room = encodeURIComponent(($room?.value || "demo").trim() || "demo");
+  const room = encodeURIComponent(getRoomId());
+  const roomKey = encodeURIComponent(getRoomKey());
   const ip = currentLanIp || "127.0.0.1";
-  return `http://${ip}:8080/view?room=${room}`;
+  return `http://${ip}:8080/view?room=${room}&key=${roomKey}`;
 }
 
 async function updateViewerUrlAndQr() {
@@ -172,11 +285,17 @@ async function loadLanIp() {
     } else {
       currentLanIp = "127.0.0.1";
     }
+    if ($lanIpLabel) {
+      $lanIpLabel.textContent = currentLanIp;
+    }
 
     await updateViewerUrlAndQr();
   } catch (e) {
     log("LAN IP detection failed:", String(e));
     currentLanIp = "127.0.0.1";
+    if ($lanIpLabel) {
+      $lanIpLabel.textContent = currentLanIp;
+    }
     await updateViewerUrlAndQr();
   }
 }
@@ -237,33 +356,30 @@ async function loadSources() {
   }
 
   const sources = await window.electronAPI.getSources();
+  if ($sourceCount) {
+    $sourceCount.textContent = `${sources.length} source${sources.length === 1 ? "" : "s"}`;
+  }
   $sources.innerHTML = "";
 
-  for (const s of sources) {
+  for (const source of sources) {
     const card = document.createElement("button");
     card.type = "button";
-    card.style.width = "260px";
-    card.style.textAlign = "left";
-    card.style.borderRadius = "12px";
-    card.style.border = "1px solid #ddd";
-    card.style.padding = "10px";
-    card.style.background = selectedSourceId === s.id ? "#eef" : "#fff";
+    card.className = `source-card${selectedSourceId === source.id ? " source-card--selected" : ""}`;
 
     const title = document.createElement("div");
-    title.textContent = s.name;
-    title.style.fontWeight = "600";
-    title.style.marginBottom = "6px";
+    title.className = "source-card__title";
+    title.textContent = source.name;
 
     const img = document.createElement("img");
-    img.style.width = "100%";
-    img.style.borderRadius = "10px";
-    img.style.display = "block";
-    img.alt = s.name;
-    if (s.thumbnail) img.src = s.thumbnail;
+    img.className = "source-card__thumb";
+    img.alt = source.name;
+    if (source.thumbnail) img.src = source.thumbnail;
 
     card.onclick = async () => {
-      selectedSourceId = s.id;
-      log("Selected source:", s.id, s.name);
+      selectedSourceId = source.id;
+      selectedSourceName = source.name;
+      updateSelectedSourceUI();
+      log("Selected source:", source.id, source.name);
       await loadSources();
     };
 
@@ -304,8 +420,8 @@ async function captureSelectedSource() {
       }
     }
 
-    for (const t of screenStream.getTracks()) {
-      pc.addTrack(t, screenStream);
+    for (const streamTrack of screenStream.getTracks()) {
+      pc.addTrack(streamTrack, screenStream);
     }
 
     await makeOffer(viewerId);
@@ -314,8 +430,8 @@ async function captureSelectedSource() {
 
 function stopAll() {
   if (screenStream) {
-    for (const t of screenStream.getTracks()) {
-      t.stop();
+    for (const track of screenStream.getTracks()) {
+      track.stop();
     }
     screenStream = null;
   }
@@ -328,47 +444,95 @@ function stopAll() {
     } catch {}
   }
   peers.clear();
+  activeViewerIds.clear();
+  updateViewerCount();
 
-  if ($start) $start.disabled = false;
   if ($stop) $stop.disabled = true;
+  if ($start) $start.disabled = !joinedAsHost;
 
   log("Stopped streaming and closed peers.");
 }
 
+function disconnectHostSocket(closeStatus = null) {
+  joinedAsHost = false;
+  if (!ws) return;
+  const socket = ws;
+  ws = null;
+  socket.codexCloseStatus = closeStatus;
+  try {
+    socket.close();
+  } catch {}
+}
+
 function attachWsHandlers(socket) {
   socket.onopen = () => {
-    setStatus("ws-open");
+    if (socket !== ws) return;
+    setStatus("joining");
     log("WS connected:", $server.value.trim());
-    send({ type: "join", role: "host" });
-
-    if ($pick) $pick.disabled = false;
-    if ($start) $start.disabled = false;
-    if ($timerStart) $timerStart.disabled = false;
-    if ($timerReset) $timerReset.disabled = false;
+    socket.send(
+      JSON.stringify({
+        type: "join",
+        role: "host",
+        roomId: getRoomId(),
+        roomKey: getRoomKey(),
+      }),
+    );
   };
 
   socket.onclose = () => {
-    setStatus("ws-closed");
+    if (socket !== ws && ws !== null) return;
+    const closeStatus = socket.codexCloseStatus || "ws-closed";
+    ws = null;
+    joinedAsHost = false;
+    setStatus(closeStatus);
     log("WS closed");
-
-    if ($pick) $pick.disabled = true;
-    if ($start) $start.disabled = true;
-    if ($stop) $stop.disabled = true;
-    if ($timerStart) $timerStart.disabled = true;
-    if ($timerStop) $timerStop.disabled = true;
-    stopTimer(); // Stop timer on disconnect
+    stopAll();
+    stopTimer();
+    setHostControlsEnabled(false);
   };
 
   socket.onerror = (err) => {
+    if (socket !== ws) return;
     log("WS error:", err?.message || "unknown websocket error");
   };
 
   socket.onmessage = async (ev) => {
+    if (socket !== ws) return;
     const msg = JSON.parse(ev.data);
+
+    if (msg.type === "joined") {
+      joinedAsHost = true;
+      setStatus("connected");
+      setHostControlsEnabled(true);
+      updateViewerCount();
+      log("Joined room as host:", getRoomId());
+      return;
+    }
+
+    if (msg.type === "join-denied") {
+      setStatus("join-denied");
+      log("Join denied:", describeJoinReason(msg.reason));
+      setHostControlsEnabled(false);
+      disconnectHostSocket("join-denied");
+      return;
+    }
+
+    if (msg.type === "replaced") {
+      setStatus("replaced");
+      log("Another host took over this room.");
+      stopAll();
+      stopTimer();
+      setHostControlsEnabled(false);
+      disconnectHostSocket("replaced");
+      return;
+    }
 
     if (msg.type === "viewer-joined") {
       log("Viewer joined:", msg.viewerId);
+      activeViewerIds.add(msg.viewerId);
+      updateViewerCount();
       ensurePeer(msg.viewerId);
+      setStatus(screenStream ? "streaming" : "waiting-viewers");
       if (screenStream) {
         await makeOffer(msg.viewerId);
       }
@@ -377,6 +541,8 @@ function attachWsHandlers(socket) {
 
     if (msg.type === "viewer-left") {
       log("Viewer left:", msg.viewerId);
+      activeViewerIds.delete(msg.viewerId);
+      updateViewerCount();
       const pc = peers.get(msg.viewerId);
       if (pc) {
         try {
@@ -415,6 +581,15 @@ function attachWsHandlers(socket) {
 
 if ($room) {
   $room.addEventListener("input", () => {
+    updateSessionMirrors();
+    updateViewerUrlAndQr();
+  });
+}
+
+if ($roomKey) {
+  $roomKey.addEventListener("input", () => {
+    normalizeRoomKeyInput();
+    updateSessionMirrors();
     updateViewerUrlAndQr();
   });
 }
@@ -422,14 +597,15 @@ if ($room) {
 if ($connect) {
   $connect.onclick = () => {
     const url = ($server?.value || "").trim();
-    if (!url) return;
-
-    if (ws) {
-      try {
-        ws.close();
-      } catch {}
-      ws = null;
+    const roomKey = getRoomKey();
+    if (!url || !roomKey) {
+      setStatus("join-denied");
+      log("Connect aborted: missing server URL or room key.");
+      return;
     }
+
+    disconnectHostSocket("idle");
+    setHostControlsEnabled(false);
 
     log("Connecting WS to:", url);
     ws = new WebSocket(url);
@@ -454,8 +630,10 @@ if ($start) {
       await captureSelectedSource();
       $stop.disabled = false;
       $start.disabled = true;
+      setStatus("streaming");
       log("Streaming started.");
     } catch (e) {
+      setStatus("capture-failed");
       log("Capture failed:", String(e));
       alert(
         "Capture failed. Try selecting a different source and check permissions.",
@@ -486,6 +664,17 @@ window.addEventListener("DOMContentLoaded", async () => {
   log("getSources available:", !!window.electronAPI?.getSources);
   log("getLanIps available:", !!window.electronAPI?.getLanIps);
   log("makeQRCodeDataUrl available:", !!window.electronAPI?.makeQRCodeDataUrl);
+
+  canPickSources = !!window.electronAPI?.getSources;
+  syncPickButton();
+
+  if ($roomKey && !$roomKey.value) {
+    $roomKey.value = randomRoomKey();
+  }
+  normalizeRoomKeyInput();
+  updateSessionMirrors();
+  updateViewerCount();
+  updateSelectedSourceUI();
 
   await loadLanIp();
 });

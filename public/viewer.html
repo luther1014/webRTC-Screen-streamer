@@ -11,12 +11,15 @@
 <body>
     <button id="darkModeToggle" class="top-right-btn" type="button" aria-label="Toggle dark mode">🌙</button>
     <h2>Viewer</h2>
+    <p class="subtitle">Join the host with the shared room key, then wait for the stream to start.</p>
 
-    <div class="row">
+    <div class="row viewer-toolbar">
         <div>Room: <code id="room"></code></div>
-        <div>Status: <code id="status">connecting</code></div>
+        <label class="inline-field">Room key <input id="roomKey" maxlength="12" autocomplete="off" /></label>
+        <button id="connectBtn" class="primary-btn" type="button">Connect</button>
+        <div>Status: <code id="status">idle</code></div>
     </div>
-
+    <p id="connectionHint" class="hint-text">Use the room key included in the host link or ask the host to share it.</p>
 
     <div class="video-wrapper">
         <video id="video" autoplay playsinline controls></video>
